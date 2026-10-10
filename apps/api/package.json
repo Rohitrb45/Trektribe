@@ -1,0 +1,5 @@
+{
+  "name": "@trektribe/api", "version": "0.1.0", "private": true,
+  "scripts": { "dev": "node --import tsx --watch src/main.ts", "start": "node dist/apps/api/src/main.js" },
+  "dependencies": { "@nestjs/common": "^11.1.0", "@nestjs/core": "^11.1.0", "@nestjs/platform-express": "^11.1.0", "reflect-metadata": "^0.2.2", "rxjs": "^7.8.2", "pg": "^8.16.0", "zod": "^4.0.0" }
+}

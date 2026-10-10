@@ -1,0 +1,12 @@
+node_modules/
+.expo/
+dist/
+.env
+.env.local
+*.log
+data/
+.tmp/
+.browsers/
+.qa/
+.test-data-*/
+.api-test-*/
