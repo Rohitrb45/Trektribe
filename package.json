@@ -1,0 +1,16 @@
+{
+  "name": "trektribe", "version": "0.1.0", "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "start": "npm run start -w @trektribe/mobile",
+    "web": "npm run web -w @trektribe/mobile",
+    "api": "npm run dev -w @trektribe/api",
+    "typecheck": "tsc --noEmit -p apps/mobile && tsc --noEmit -p apps/api",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "build:api": "tsc -p apps/api",
+    "build:web": "npm run build:web -w @trektribe/mobile",
+    "db:migrate": "node --import tsx scripts/migrate.ts"
+  },
+  "devDependencies": { "typescript": "~5.9.2", "tsx": "^4.20.0", "@types/node": "^22.0.0", "@types/pg": "^8.15.0" },
+  "engines": { "node": ">=22.13" }
+}

@@ -1,0 +1,31 @@
+# Next implementation milestones
+
+## 1. Turn the single-user demo into a multi-user application
+
+Choose an OIDC provider, implement token verification, and map subjects to user IDs. Replace the static demo identity and aggregate demo endpoints with resource endpoints. Derive authorship and permissions from the authenticated identity. Add ownership, blocking, visibility, and organizer policies and authorization tests. Split `App.tsx` into feature screens as navigation expands; introduce Expo Router and generated OpenAPI clients.
+
+Acceptance: two real accounts can publish separate stories, like each other's posts, and cannot edit each other's content or approve another organizer's trip. The production startup guard may be removed only after these controls are in place.
+
+## 2. Validate the database and finish trail ingestion
+
+Run the migration and adapter against PostgreSQL/PostGIS in CI. Add concurrent approval tests against a real database. Move feed pagination into SQL instead of reading an aggregate snapshot. Add route-version tables before accepting edits to published geometry. Import GPX with point/file limits and safe XML parsing. Compute route metrics from validated data and derive rating totals from a defined rating policy.
+
+Acceptance: competing final-slot approvals yield one success; changing a trail does not alter an existing outing's pinned route.
+
+## 3. Connect native maps and media
+
+Validate the Expo/native SDK compatibility matrix, install `@rnmapbox/maps`, and build for physical iOS and Android devices. Replace `RouteArt` with a native map behind a platform adapter; retain the illustration only as a labeled demo fallback. Add S3/R2 upload authorization, asset processing, metadata stripping, and media readiness validation. Use a worker for media tasks.
+
+Acceptance: real routes render, signed uploads are owner-scoped, and interrupted uploads recover without creating duplicate posts.
+
+## 4. Complete group planning and community
+
+Add outing creation, timezones, private visibility, hashed invitations, cohosts, cancellation, and durable forum threads. Add chat room membership, per-room message sequences, persisted messages, transactional outbox, Socket.IO acknowledgments, and reconnect backfill. Redis supports presence and broadcasts; PostgreSQL remains authoritative.
+
+Acceptance: acknowledged messages survive reconnects; removed members lose access; private-trip details never appear in public discovery.
+
+## 5. Offline maps and recorded tracks
+
+Use Expo SQLite for sessions, points, sync cursors, and queued operations; AsyncStorage in this demo is not a GPS database. Download map resources through the provider SDK. Add numbered, checksummed track chunks and private-by-default sharing. Test permission changes, background lifecycle, screen lock, limited storage, and battery drain on real devices.
+
+Acceptance: a downloaded route can be inspected in airplane mode; supported recording interruptions preserve saved points; retrying a chunk never duplicates it.

@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name": "TrekTribe", "slug": "trektribe", "version": "0.1.0", "orientation": "portrait",
+    "userInterfaceStyle": "light", "newArchEnabled": true,
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.trektribe.app" },
+    "android": { "package": "com.trektribe.app" },
+    "web": { "bundler": "metro", "name": "TrekTribe" }
+  }
+}
