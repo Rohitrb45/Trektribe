@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { Pool, PoolClient } from 'pg';
 import { applyCommand, Command, createSeed, DEMO_USER, DomainError, State } from '../../../packages/core/src/index';
 import { FeedCursor, FeedPage, feedPage } from './feed';
@@ -52,6 +52,39 @@ export class PostgresStore implements Store {
       await c.query('COMMIT');return id;
     }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
   }
+  async invite(tripId:string,actor:string):Promise<{token:string;expiresAt:string}>{
+    const c=await this.pool.connect();
+    try{
+      await c.query('BEGIN');
+      const trip=(await c.query('SELECT * FROM group_treks WHERE id=$1 FOR UPDATE',[tripId])).rows[0];
+      if(!trip||trip.organizer_id!==actor)throw new DomainError('NOT_FOUND','Outing not found.',404);
+      if(trip.status!=='open'||new Date(trip.starts_at).getTime()<=Date.now())throw new DomainError('TRIP_CLOSED','This outing is closed.',409);
+      const count=(await c.query('SELECT count(*)::int AS n FROM trip_invitations WHERE trip_id=$1 AND redeemed_by IS NULL AND expires_at>now()',[tripId])).rows[0].n;
+      if(count>=50)throw new DomainError('INVITATION_LIMIT','There are already 50 active invitations.',409);
+      const token=randomBytes(32).toString('base64url'),expiresAt=new Date(Math.min(Date.now()+7*86400000,new Date(trip.starts_at).getTime())).toISOString();
+      await c.query('INSERT INTO trip_invitations(token_hash,trip_id,created_by,expires_at) VALUES($1,$2,$3,$4)',[createHash('sha256').update(token).digest('hex'),tripId,actor,expiresAt]);
+      await c.query('COMMIT');return {token,expiresAt};
+    }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
+  }
+  async acceptInvite(token:string,actor:string){
+    const hash=createHash('sha256').update(token).digest('hex'),c=await this.pool.connect();
+    try{
+      await c.query('BEGIN');
+      const invite=(await c.query('SELECT trip_id FROM trip_invitations WHERE token_hash=$1',[hash])).rows[0];
+      if(!invite)throw new DomainError('INVALID_INVITATION','Invitation is invalid or expired.',404);
+      // Same parent-row lock as approval/leave prevents roster races.
+      const trip=(await c.query('SELECT * FROM group_treks WHERE id=$1 FOR UPDATE',[invite.trip_id])).rows[0];
+      const row=(await c.query('SELECT * FROM trip_invitations WHERE token_hash=$1 FOR UPDATE',[hash])).rows[0];
+      if(row.redeemed_by===actor){await c.query('COMMIT');return {tripId:trip.id};}
+      if(row.redeemed_by||new Date(row.expires_at).getTime()<=Date.now())throw new DomainError('INVALID_INVITATION','Invitation is invalid or expired.',404);
+      if(trip.status!=='open'||new Date(trip.starts_at).getTime()<=Date.now())throw new DomainError('TRIP_CLOSED','This outing is closed.',409);
+      const accepted=(await c.query("SELECT count(*)::int AS n FROM group_trek_members WHERE trip_id=$1 AND status='accepted'",[trip.id])).rows[0].n;
+      if(accepted>=trip.max_participants)throw new DomainError('TRIP_FULL','This outing is full.',409);
+      await c.query("INSERT INTO group_trek_members(trip_id,user_id,status) VALUES($1,$2,'pending') ON CONFLICT DO NOTHING",[trip.id,actor]);
+      await c.query('UPDATE trip_invitations SET redeemed_by=$1,redeemed_at=now() WHERE token_hash=$2',[actor,hash]);
+      await c.query('COMMIT');return {tripId:trip.id};
+    }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
+  }
   async feed(limit:number,cursor?:FeedCursor):Promise<FeedPage>{
     // Preserve PostgreSQL microseconds in cursors; JS Date truncates them.
     const rows=await this.pool.query(`SELECT p.id,p.user_id AS "userId",u.name AS author,
@@ -70,10 +103,10 @@ export class PostgresStore implements Store {
     catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
   }
   private async snapshot(db:DB,actor=DEMO_USER):Promise<State>{
-    const treks=await db.query(`SELECT id,title,region,description,difficulty,distance_km::float AS "distanceKm", elevation_m AS "elevationM", duration,altitude_m AS "altitudeM",rating::float,report_count AS reports,color,highlights,ST_AsGeoJSON(trailhead_location::geometry)::json->'coordinates' AS coordinates,ST_AsGeoJSON(route_geometry)::json->'coordinates' AS route FROM treks ORDER BY id`);
+    const treks=await db.query(`SELECT id,current_route_version_id AS "routeVersionId",owner_id AS "ownerId",(SELECT has_elevation FROM route_versions WHERE id=treks.current_route_version_id) AS "hasElevation",title,region,description,difficulty,distance_km::float AS "distanceKm", elevation_m AS "elevationM", duration,altitude_m AS "altitudeM",rating::float,report_count AS reports,color,highlights,ST_AsGeoJSON(trailhead_location::geometry)::json->'coordinates' AS coordinates,ST_AsGeoJSON(route_geometry)::json->'coordinates' AS route FROM treks ORDER BY id`);
     const posts=await db.query(`SELECT p.id,p.user_id AS "userId",u.name AS author,u.profile->>'initials' AS initials,p.trek_id AS "trekId",p.content,p.rating,p.condition,to_char(p.observed_at,'YYYY-MM-DD') AS "observedAt",p.created_at AS "createdAt",COALESCE((SELECT json_agg(l.user_id) FROM post_likes l WHERE l.post_id=p.id),'[]') AS "likedBy" FROM posts p JOIN users u ON u.id=p.user_id ORDER BY p.created_at DESC,p.id DESC`);
     const comments=await db.query(`SELECT c.id,c.post_id AS "postId",c.user_id AS "userId",u.name AS author,c.body,c.created_at AS "createdAt" FROM comments c JOIN users u ON u.id=c.user_id ORDER BY c.created_at,c.id`);
-    const trips=await db.query(`SELECT g.id,g.trek_id AS "trekId",g.title,g.organizer_id AS "organizerId",u.name AS organizer,g.starts_at AS "startsAt",g.max_participants AS "maxParticipants",g.status,g.timezone,COALESCE((SELECT json_agg(json_build_object('userId',m.user_id,'status',m.status)) FROM group_trek_members m WHERE m.trip_id=g.id),'[]') AS members FROM group_treks g JOIN users u ON u.id=g.organizer_id ORDER BY g.starts_at,g.id`);
+    const trips=await db.query(`SELECT g.id,g.route_version_id AS "routeVersionId",g.trek_id AS "trekId",g.title,g.organizer_id AS "organizerId",u.name AS organizer,g.starts_at AS "startsAt",g.max_participants AS "maxParticipants",g.status,g.timezone,g.visibility,COALESCE((SELECT json_agg(json_build_object('userId',m.user_id,'status',m.status)) FROM group_trek_members m WHERE m.trip_id=g.id),'[]') AS members FROM group_treks g JOIN users u ON u.id=g.organizer_id WHERE g.visibility='public' OR g.organizer_id=$1 OR EXISTS(SELECT 1 FROM group_trek_members access WHERE access.trip_id=g.id AND access.user_id=$1) ORDER BY g.starts_at,g.id`,[actor]);
     const savedRows=await db.query('SELECT user_id,trek_id FROM saved_treks WHERE user_id=$1',[actor]);
     const profile=await db.query('SELECT profile FROM users WHERE id=$1',[actor]);
     if(!profile.rows[0])throw new Error('Database has not been seeded. Run npm run db:migrate.');
@@ -93,7 +126,7 @@ export class PostgresStore implements Store {
         await c.query('UPDATE users SET name=$1,profile=$2 WHERE id=$3',[next.profile.name,JSON.stringify(next.profile),actor]);
       }else if(command.type==='create-trip'){
         const t=next.trips.find(t=>t.id===command.id)!;
-        await c.query('INSERT INTO group_treks(id,trek_id,title,organizer_id,starts_at,timezone,max_participants,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(id) DO NOTHING',[t.id,t.trekId,t.title,actor,t.startsAt,t.timezone,t.maxParticipants,t.status]);
+        await c.query('INSERT INTO group_treks(id,trek_id,title,organizer_id,starts_at,timezone,max_participants,status,visibility,route_version_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(id) DO NOTHING',[t.id,t.trekId,t.title,actor,t.startsAt,t.timezone,t.maxParticipants,t.status,t.visibility||'public',t.routeVersionId]);
         await c.query("INSERT INTO group_trek_members(trip_id,user_id,status) VALUES($1,$2,'accepted') ON CONFLICT DO NOTHING",[t.id,actor]);
       }else if(command.type==='cancel-trip'){
         await c.query("UPDATE group_treks SET status='closed' WHERE id=$1",[command.tripId]);
@@ -131,8 +164,11 @@ export async function seedDatabase(pool:Pool){
     await c.query('BEGIN'); const seed=createSeed();
     for(const user of [{...seed.profile}, {id:'00000000-0000-4000-8000-000000000002',username:'meera.trails',name:'Meera Kapoor',initials:'MK'}, {id:'00000000-0000-4000-8000-000000000003',username:'kabir.outside',name:'Kabir Rao',initials:'KR'}])await c.query('INSERT INTO users(id,username,name,profile) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',[user.id,user.username,user.name,JSON.stringify(user)]);
     for(const t of seed.treks)await c.query(`INSERT INTO treks(id,title,region,description,difficulty,distance_km,elevation_m,duration,altitude_m,rating,report_count,color,highlights,trailhead_location,route_geometry) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,ST_SetSRID(ST_MakePoint($14,$15),4326)::geography,ST_SetSRID(ST_GeomFromGeoJSON($16),4326)) ON CONFLICT DO NOTHING`,[t.id,t.title,t.region,t.description,t.difficulty,t.distanceKm,t.elevationM,t.duration,t.altitudeM,t.rating,t.reports,t.color,JSON.stringify(t.highlights),...t.coordinates,JSON.stringify({type:'LineString',coordinates:t.route})]);
+    await c.query(`INSERT INTO route_versions(id,trek_id,geometry,distance_km,elevation_m,altitude_m)
+      SELECT gen_random_uuid(),id,route_geometry,distance_km,elevation_m,altitude_m FROM treks WHERE current_route_version_id IS NULL`);
+    await c.query('UPDATE treks t SET current_route_version_id=r.id FROM route_versions r WHERE r.trek_id=t.id AND t.current_route_version_id IS NULL');
     for(const p of seed.posts)await c.query('INSERT INTO posts(id,user_id,trek_id,content,rating,condition,observed_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING',[p.id,p.userId,p.trekId,p.content,p.rating,p.condition,p.observedAt,p.createdAt]);
-    for(const t of seed.trips){await c.query('INSERT INTO group_treks(id,trek_id,title,organizer_id,starts_at,max_participants,status) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING',[t.id,t.trekId,t.title,t.organizerId,t.startsAt,t.maxParticipants,t.status]);for(const m of t.members)await c.query('INSERT INTO group_trek_members(trip_id,user_id,status) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',[t.id,m.userId,m.status]);}
+    for(const t of seed.trips){await c.query('INSERT INTO group_treks(id,trek_id,title,organizer_id,starts_at,max_participants,status,route_version_id) VALUES($1,$2,$3,$4,$5,$6,$7,(SELECT current_route_version_id FROM treks WHERE id=$2)) ON CONFLICT DO NOTHING',[t.id,t.trekId,t.title,t.organizerId,t.startsAt,t.maxParticipants,t.status]);for(const m of t.members)await c.query('INSERT INTO group_trek_members(trip_id,user_id,status) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',[t.id,m.userId,m.status]);}
     await c.query('COMMIT');
   }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
 }

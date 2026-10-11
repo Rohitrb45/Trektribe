@@ -4,6 +4,14 @@ import { accessToken, authenticatedMode } from './session';
 const key = 'trektribe.demo.v1';
 export const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
 export const mode = authenticatedMode ? 'Connected' : apiUrl ? 'Connected demo' : 'Local demo';
+export async function createInvitation(tripId:string) {
+  if(!apiUrl)throw new Error('Invitations require a connected PostgreSQL API.');
+  return request<{token:string;expiresAt:string}>(`/group-treks/${tripId}/invitations`,{});
+}
+export async function acceptInvitation(token:string) {
+  if(!apiUrl)throw new Error('Invitations require a connected PostgreSQL API.');
+  return request<{tripId:string}>('/invitations/accept',{token});
+}
 let queue: Promise<unknown> = Promise.resolve();
 async function request<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`${apiUrl}/v1${path}`, {

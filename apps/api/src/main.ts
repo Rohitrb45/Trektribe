@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { Body, Controller, Get, Post as HttpPost, Param, Query, Module, Req, UnauthorizedException, HttpException, NotFoundException } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z, ZodError } from 'zod';
@@ -9,6 +10,8 @@ import { DemoStore, PostgresStore, Store } from './store';
 import { commandSchema, searchSchema, feedSchema } from './validation';
 import { decodeCursor } from './feed';
 import { configuredVerifier } from './auth';
+import { RouteRepository } from './routes';
+const routeSchema=z.object({gpx:z.string().min(1).max(1_000_000),title:z.string().trim().min(1).max(120),region:z.string().trim().min(1).max(120),description:z.string().max(5000),difficulty:z.enum(['Easy','Moderate','Hard'])}).strict();
 
 if(process.env.NODE_ENV==='production')throw new Error('Production startup remains disabled until all resource policies and external integrations are verified.');
 const oidc=process.env.AUTH_MODE==='oidc';
@@ -26,6 +29,18 @@ function demoOnly(){if(oidc)throw new NotFoundException();}
 
 @Controller('v1')
 class ApiController {
+ @HttpPost('treks/import') async importRoute(@Req() req:any,@Body() body:unknown){
+   const user=await actor(req);if(!(store instanceof PostgresStore))throw new HttpException('GPX import requires PostgreSQL.',409);
+   const {gpx,...metadata}=routeSchema.parse(body);return new RouteRepository(store.pool).publish(user,gpx,metadata);
+ }
+ @HttpPost('treks/:id/route-versions') async updateRoute(@Req() req:any,@Param('id') id:string,@Body() body:unknown){
+   const user=await actor(req);if(!(store instanceof PostgresStore))throw new HttpException('Route versions require PostgreSQL.',409);
+   const {gpx,...metadata}=routeSchema.parse(body);return new RouteRepository(store.pool).publish(user,gpx,metadata,z.uuid().parse(id));
+ }
+ @Get('group-treks/:id/route') async tripRoute(@Req() req:any,@Param('id') id:string){
+   const user=await actor(req);if(!(store instanceof PostgresStore))throw new HttpException('Pinned routes require PostgreSQL.',409);
+   return new RouteRepository(store.pool).forTrip(z.uuid().parse(id),user);
+ }
  @Get('health') health(){return {status:'ok',mode:oidc?'oidc':'demo',storage:store instanceof PostgresStore?'postgres':'local-json'};}
  @Get('demo/state') async state(@Req() req:any){demoOnly();await actor(req);return store.read();}
  @HttpPost('demo/commands') async command(@Req() req:any,@Body() body:unknown){demoOnly();await actor(req);return store.execute(commandSchema.parse(body));}
@@ -37,6 +52,15 @@ class ApiController {
  @HttpPost('group-treks') async createTrip(@Req() req:any,@Body() body:unknown){
    const user=await actor(req);const data=commandSchema.options[8].omit({type:true}).parse(body);
    return (await store.execute({type:'create-trip',...data},user)).trips.find(t=>t.id===data.id);
+ }
+ @HttpPost('group-treks/:id/invitations') async invite(@Req() req:any,@Param('id') id:string){
+   const user=await actor(req);if(!(store instanceof PostgresStore))throw new HttpException('Invitations require a PostgreSQL connection.',409);
+   return store.invite(z.uuid().parse(id),user);
+ }
+ @HttpPost('invitations/accept') async acceptInvite(@Req() req:any,@Body() body:unknown){
+   const user=await actor(req);if(!(store instanceof PostgresStore))throw new HttpException('Invitations require a PostgreSQL connection.',409);
+   const data=z.object({token:z.string().regex(/^[A-Za-z0-9_-]{43}$/)}).strict().parse(body);
+   return store.acceptInvite(data.token,user);
  }
  @HttpPost('group-treks/:id/cancel') async cancelTrip(@Req() req:any,@Param('id') id:string){
    const user=await actor(req);return (await store.execute({type:'cancel-trip',tripId:z.uuid().parse(id)},user)).trips.find(t=>t.id===id);
@@ -80,7 +104,8 @@ class ApiController {
 }
 @Module({controllers:[ApiController]}) class AppModule{}
 async function bootstrap(){
- const app=await NestFactory.create(AppModule,{bodyParser:true});
+ const app=await NestFactory.create<NestExpressApplication>(AppModule,{bodyParser:false});
+ app.useBodyParser('json',{limit:'1100kb'});
  app.enableCors({origin:(process.env.CORS_ORIGINS||'http://localhost:8081,http://127.0.0.1:8081').split(','),methods:['GET','POST'],allowedHeaders:['Content-Type','Authorization']});
  app.useGlobalFilters({catch(exception:unknown,host:any){
    const response=host.switchToHttp().getResponse();const requestId=randomUUID();

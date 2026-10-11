@@ -32,12 +32,13 @@ export function applyCommand(state: State, command: Command, actor: string, now 
     for(const t of s.trips)if(t.organizerId===actor)t.organizer=s.profile.name;
   } else if(command.type==='create-trip'){
     requireValue(s.treks.find(t=>t.id===command.trekId));
+    if(command.visibility!==undefined&&!['public','private'].includes(command.visibility))throw new DomainError('INVALID_VISIBILITY','Choose public or private.');
     if(!command.title.trim()||command.title.length>120||!Number.isInteger(command.maxParticipants)||command.maxParticipants<2||command.maxParticipants>50)throw new DomainError('INVALID_TRIP','Use a title and a capacity between 2 and 50.');
     if(!Number.isFinite(Date.parse(command.startsAt))||Date.parse(command.startsAt)<=Date.parse(now))throw new DomainError('INVALID_DATE','Choose a future outing date.');
     try{new Intl.DateTimeFormat('en',{timeZone:command.timezone});}catch{throw new DomainError('INVALID_TIMEZONE','Choose a valid timezone.');}
     const existing=s.trips.find(t=>t.id===command.id);
-    if(existing){if(existing.organizerId!==actor||existing.trekId!==command.trekId||existing.title!==command.title.trim()||Date.parse(existing.startsAt)!==Date.parse(command.startsAt)||existing.timezone!==command.timezone||existing.maxParticipants!==command.maxParticipants)throw new DomainError('CONFLICT','This request ID was already used.',409);return s;}
-    s.trips.push({id:command.id,trekId:command.trekId,title:command.title.trim(),organizerId:actor,organizer:s.profile.name,startsAt:new Date(command.startsAt).toISOString(),timezone:command.timezone,maxParticipants:command.maxParticipants,members:[{userId:actor,status:'accepted'}],status:'open'});
+    if(existing){if(existing.organizerId!==actor||existing.trekId!==command.trekId||existing.title!==command.title.trim()||Date.parse(existing.startsAt)!==Date.parse(command.startsAt)||existing.timezone!==command.timezone||existing.maxParticipants!==command.maxParticipants||(existing.visibility||'public')!==(command.visibility||'public'))throw new DomainError('CONFLICT','This request ID was already used.',409);return s;}
+    s.trips.push({routeVersionId:s.treks.find(t=>t.id===command.trekId)?.routeVersionId,id:command.id,trekId:command.trekId,title:command.title.trim(),organizerId:actor,organizer:s.profile.name,startsAt:new Date(command.startsAt).toISOString(),timezone:command.timezone,visibility:command.visibility||'public',maxParticipants:command.maxParticipants,members:[{userId:actor,status:'accepted'}],status:'open'});
   } else if (command.type === 'save') {
     requireValue(s.treks.find(t=>t.id===command.trekId));
     const ids = new Set(s.saved[actor] || []);
@@ -72,6 +73,7 @@ export function applyCommand(state: State, command: Command, actor: string, now 
       trip.members=trip.members.filter(m=>m.userId!==actor);
     } else if (command.type === 'join') {
       if (trip.members.some(m=>m.userId===actor)) return s;
+      if(trip.visibility==='private')throw new DomainError('INVITATION_REQUIRED','An invitation is required for this outing.',403);
       if (trip.status!=='open' || trip.startsAt <= now) throw new DomainError('TRIP_CLOSED','This outing is not accepting requests.',409);
       if (trip.members.filter(m=>m.status==='accepted').length>=trip.maxParticipants) throw new DomainError('TRIP_FULL','This outing is full.',409);
       trip.members.push({ userId: actor, status: 'pending' });

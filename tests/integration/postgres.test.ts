@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { Pool } from 'pg';
 import { PostgresStore } from '../../apps/api/src/store';
 import { decodeCursor } from '../../apps/api/src/feed';
+import { RouteRepository } from '../../apps/api/src/routes';
 import { createSeed, DEMO_USER, DomainError } from '../../packages/core/src/index';
 
 const exec = promisify(execFile);
@@ -34,7 +35,7 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await db.pool.query('UPDATE users SET name=$1 WHERE id=$2', ['Preserved name', DEMO_USER]);
       await migrate();
       assert.equal((await db.pool.query('SELECT name FROM users WHERE id=$1', [DEMO_USER])).rows[0].name, 'Preserved name');
-      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 3);
+      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 5);
       const state = await db.read();
       assert.equal(state.treks.length, seed.treks.length);
       assert.deepEqual(state.treks[0].coordinates, seed.treks[0].coordinates);
@@ -76,6 +77,46 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       assert.equal(Number(nearby[0].distance_m), 0);
       const indexes = await db.pool.query("SELECT indexname FROM pg_indexes WHERE tablename='treks' AND indexdef LIKE '%USING gist%'");
       assert.equal(indexes.rowCount, 2);
+    });
+
+    await t.test('private outings are hidden; hashed invitations are single-use and expire', async () => {
+      const owner=await db.identify({issuer:'https://identity.example',subject:'private-owner'});
+      const guest=await db.identify({issuer:'https://identity.example',subject:'private-guest'});
+      const outsider=await db.identify({issuer:'https://identity.example',subject:'outsider'});
+      const trip={type:'create-trip' as const,id:randomUUID(),trekId:seed.treks[0].id,title:'Private walk',startsAt:new Date(Date.now()+86400000).toISOString(),timezone:'Asia/Kolkata',visibility:'private' as const,maxParticipants:4};
+      await db.execute(trip,owner);
+      assert.ok((await db.read(owner)).trips.some(t=>t.id===trip.id));
+      assert.equal((await db.read(guest)).trips.some(t=>t.id===trip.id),false);
+      await assert.rejects(db.execute({type:'join',tripId:trip.id},guest));
+      await assert.rejects(db.invite(trip.id,outsider));
+      const invitation=await db.invite(trip.id,owner);
+      const row=(await db.pool.query('SELECT token_hash FROM trip_invitations WHERE trip_id=$1',[trip.id])).rows[0];
+      assert.notEqual(row.token_hash,invitation.token);
+      await db.acceptInvite(invitation.token,guest);
+      await db.acceptInvite(invitation.token,guest);
+      assert.ok((await db.read(guest)).trips.some(t=>t.id===trip.id));
+      await assert.rejects(db.acceptInvite(invitation.token,outsider));
+      const expired=await db.invite(trip.id,owner);
+      await db.pool.query("UPDATE trip_invitations SET expires_at=now()-interval '1 second' WHERE redeemed_by IS NULL AND trip_id=$1",[trip.id]);
+      await assert.rejects(db.acceptInvite(expired.token,outsider));
+      assert.equal((await db.read(outsider)).trips.some(t=>t.id===trip.id),false);
+    });
+
+    await t.test('route changes preserve an outing’s immutable pinned geometry', async () => {
+      const routes=new RouteRepository(db.pool);
+      const xml='<gpx><rte><rtept lat="30" lon="79"/><rtept lat="30.01" lon="79.01"/></rte></gpx>';
+      const metadata={title:'Imported trail',region:'Test region',description:'Imported route',difficulty:'Easy'};
+      const imported=await routes.publish(DEMO_USER,xml,metadata);
+      const id=randomUUID();
+      await db.execute({type:'create-trip',id,trekId:imported.trekId,title:'Pinned outing',startsAt:new Date(Date.now()+86400000).toISOString(),timezone:'UTC',maxParticipants:4});
+      const before=await routes.forTrip(id,DEMO_USER);
+      const updated=await routes.publish(DEMO_USER,xml.replace('30.01','30.02'),metadata,imported.trekId);
+      assert.notEqual(updated.routeVersionId,imported.routeVersionId);
+      assert.deepEqual(await routes.forTrip(id,DEMO_USER),before);
+      assert.equal((await db.read()).treks.find(t=>t.id===imported.trekId)!.routeVersionId,updated.routeVersionId);
+      await assert.rejects(db.pool.query('UPDATE route_versions SET elevation_m=999 WHERE id=$1',[imported.routeVersionId]));
+      const outsider=await db.identify({issuer:'https://identity.example',subject:'route-outsider'});
+      await assert.rejects(routes.publish(outsider,xml,metadata,imported.trekId));
     });
 
     await t.test('concurrent duplicate writes persist once and invalid mutations roll back', async () => {
