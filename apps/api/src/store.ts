@@ -2,11 +2,18 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { Pool, PoolClient } from 'pg';
 import { applyCommand, Command, createSeed, DEMO_USER, DomainError, State } from '../../../packages/core/src/index';
-export interface Store { read():Promise<State>; execute(command:Command):Promise<State>; close():Promise<void> }
+import { FeedCursor, FeedPage, feedPage } from './feed';
+export interface Store { read():Promise<State>; feed(limit:number,cursor?:FeedCursor):Promise<FeedPage>; execute(command:Command):Promise<State>; close():Promise<void> }
 
 export class DemoStore implements Store {
   private queue:Promise<unknown>=Promise.resolve();
   constructor(private path:string){}
+  async feed(limit:number,cursor?:FeedCursor):Promise<FeedPage>{
+    let posts=(await this.read()).posts.map(p=>({...p,createdAt:new Date(p.createdAt).toISOString()}));
+    posts.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)||b.id.localeCompare(a.id));
+    if(cursor){const date=new Date(cursor.createdAt).toISOString();posts=posts.filter(p=>p.createdAt<date||(p.createdAt===date&&p.id<cursor.id));}
+    return feedPage(posts,limit);
+  }
   async read():Promise<State>{
     try {const s=JSON.parse(await readFile(this.path,'utf8'));if(s.version!==1)throw new Error('Unsupported demo data version');return s;}
     catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return createSeed();throw e;}
@@ -27,6 +34,18 @@ type DB=Pool|PoolClient;
 export class PostgresStore implements Store {
   pool:Pool;
   constructor(url:string){this.pool=new Pool({connectionString:url,max:10});}
+  async feed(limit:number,cursor?:FeedCursor):Promise<FeedPage>{
+    // Preserve PostgreSQL microseconds in cursors; JS Date truncates them.
+    const rows=await this.pool.query(`SELECT p.id,p.user_id AS "userId",u.name AS author,
+      u.profile->>'initials' AS initials,p.trek_id AS "trekId",p.content,p.rating,p.condition,
+      to_char(p.observed_at,'YYYY-MM-DD') AS "observedAt",
+      to_char(p.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "createdAt",
+      COALESCE((SELECT json_agg(l.user_id ORDER BY l.user_id) FROM post_likes l WHERE l.post_id=p.id),'[]') AS "likedBy"
+      FROM posts p JOIN users u ON u.id=p.user_id
+      WHERE ($1::timestamptz IS NULL OR (p.created_at,p.id)<($1::timestamptz,$2::uuid))
+      ORDER BY p.created_at DESC,p.id DESC LIMIT $3`,[cursor?.createdAt??null,cursor?.id??null,limit+1]);
+    return feedPage(rows.rows,limit);
+  }
   async read():Promise<State>{
     const client=await this.pool.connect();
     try{await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');const state=await this.snapshot(client);await client.query('COMMIT');return state;}
