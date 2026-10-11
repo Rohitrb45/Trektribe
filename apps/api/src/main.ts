@@ -7,6 +7,7 @@ import { z, ZodError } from 'zod';
 import { DomainError, searchTreks } from '../../../packages/core/src/index';
 import { DemoStore, PostgresStore, Store } from './store';
 import { commandSchema, searchSchema, feedSchema } from './validation';
+import { decodeCursor } from './feed';
 
 if(process.env.NODE_ENV==='production' || process.env.DEMO_MODE!=='true')throw new Error('This milestone exposes demo identity only. Set DEMO_MODE=true for local development. Production startup is intentionally disabled until real authentication and resource policies are implemented.');
 const store:Store=process.env.DATABASE_URL?new PostgresStore(process.env.DATABASE_URL):new DemoStore(resolve(process.env.DEMO_DATA_PATH||'data/demo.json'));
@@ -26,9 +27,7 @@ class ApiController {
  }
  @Get('treks/:id') async trek(@Param('id') id:string){z.uuid().parse(id);const trek=(await store.read()).treks.find(t=>t.id===id);if(!trek)throw new DomainError('NOT_FOUND','Trail not found.',404);return trek;}
  @Get('feed') async feed(@Query() query:unknown){
-   const q=feedSchema.parse(query);let items=(await store.read()).posts.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)||b.id.localeCompare(a.id));
-   if(q.cursor){let cursor:{createdAt:string;id:string};try{cursor=z.object({createdAt:z.iso.datetime(),id:z.uuid()}).strict().parse(JSON.parse(Buffer.from(q.cursor,'base64url').toString()));}catch{throw new DomainError('INVALID_CURSOR','Invalid feed cursor.');}items=items.filter(p=>p.createdAt<cursor.createdAt||(p.createdAt===cursor.createdAt&&p.id<cursor.id));}
-   const page=items.slice(0,q.limit);const last=page.at(-1);return {items:page,nextCursor:items.length>q.limit&&last?Buffer.from(JSON.stringify({createdAt:last.createdAt,id:last.id})).toString('base64url'):null};
+   const q=feedSchema.parse(query);return store.feed(q.limit,decodeCursor(q.cursor));
  }
  @Get('group-treks') async trips(@Req() req:any){auth(req);return {items:(await store.read()).trips};}
 }

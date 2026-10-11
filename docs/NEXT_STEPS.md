@@ -8,6 +8,8 @@ Acceptance: two real accounts can publish separate stories, like each other's po
 
 ## 2. Validate the database and finish trail ingestion
 
+Progress (2026-10-11): real PostgreSQL/PostGIS CI tests now pass for migration/seed repeatability, persistence, spatial queries, and competing final-slot approvals. Feed keyset pagination now runs in SQL. Route versions, GPX import, derived metrics, and rating aggregation remain pending. See `VERIFICATION.md` for evidence.
+
 Run the migration and adapter against PostgreSQL/PostGIS in CI. Add concurrent approval tests against a real database. Move feed pagination into SQL instead of reading an aggregate snapshot. Add route-version tables before accepting edits to published geometry. Import GPX with point/file limits and safe XML parsing. Compute route metrics from validated data and derive rating totals from a defined rating policy.
 
 Acceptance: competing final-slot approvals yield one success; changing a trail does not alter an existing outing's pinned route.

@@ -1,5 +1,19 @@
 # Verification report — first milestone
 
+## Latest verification — 2026-10-11
+
+Implementation commit: `4291cac`, branch `feature/trektribe-database-validation`.
+
+- Local Node.js 22.23.3: typechecking, 10 automated tests, and API compilation passed.
+- Expo Doctor: 18/18 checks passed. SDK dependency compatibility check passed.
+- Android and iOS Hermes production bundle exports passed locally. This is not APK/IPA compilation or device testing.
+- The real PostgreSQL 16/PostGIS 3.5 integration job passed in [GitHub Actions](https://github.com/Rohitrb45/Trektribe/actions/runs/38114194117). It exercised repeatable migration/seed behavior, geometry round-trips and spatial queries, GiST indexes, durable/idempotent writes, rollback on conflicting request IDs, SQL cursor pagination, join/cancel permissions, and competing approvals from independent connection pools for a single remaining slot.
+- Feed pagination now runs in PostgreSQL and preserves microseconds in cursors. Aggregate demo snapshots/mutations remain unchanged.
+- Android platform tools are available locally, but `adb devices -l` reported no connected device. Moto Edge 50 Fusion behavior remains pending; see [the device checklist](NATIVE_VALIDATION.md).
+- No physical iOS device, Xcode, or native binary validation was available. Real OIDC sign-in remains unconfigured and the production guard remains enabled.
+
+The older report below records the initial integration environment; its database limitation is superseded by the CI result above.
+
 Completed in the authoring environment:
 
 - Dependency installation and lockfile generation.

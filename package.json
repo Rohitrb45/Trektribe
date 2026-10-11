@@ -7,6 +7,7 @@
     "api": "npm run dev -w @trektribe/api",
     "typecheck": "tsc --noEmit -p apps/mobile && tsc --noEmit -p apps/api",
     "test": "node --import tsx --test tests/*.test.ts",
+    "test:db": "node --import tsx --test tests/integration/*.test.ts",
     "build:api": "tsc -p apps/api",
     "build:web": "npm run build:web -w @trektribe/mobile",
     "db:migrate": "node --import tsx scripts/migrate.ts"

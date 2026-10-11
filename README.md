@@ -79,7 +79,14 @@ npm run api
 
 The migration creates normalized users, treks, posts, likes, comments, saved trails, group treks, and membership tables. It installs PostGIS and indexes trailheads and routes. A version table tracks the migration. The seed command is repeatable without overwriting existing rows.
 
-The PostgreSQL adapter is implemented but was not integration-tested in the authoring environment, which lacked Docker/PostgreSQL. Validate the migration and concurrent approval behavior against a disposable database before using this mode. A failed database connection does not fall back to JSON storage.
+The PostgreSQL adapter has a dedicated integration suite and a PostGIS service in GitHub Actions. Run it locally against a disposable PostgreSQL/PostGIS server with a role allowed to create databases:
+
+```powershell
+$env:TEST_DATABASE_URL = 'postgres://trektribe:local-development-only@localhost:5432/postgres'
+npm run test:db
+```
+
+The suite creates a uniquely named test database, runs the migration twice, tests persistence, spatial queries, feed pagination, permissions, and competing final-slot approvals, then drops only that test database. It does not migrate or clear the database in `TEST_DATABASE_URL`. A failed database connection does not fall back to JSON storage. See `docs/VERIFICATION.md` for recorded results.
 
 For roster changes, the adapter locks the parent trip row before validating and changing membership. All future endpoints that change trip capacity or accepted membership must use that same locking convention.
 
@@ -106,7 +113,7 @@ curl http://localhost:3001/v1/demo/commands \
 
 Commands are defined in `packages/core/src/types.ts`; runtime schemas are in `apps/api/src/validation.ts`. Current commands: `save`, `like`, `post`, `comment`, `join`, `leave`, and `approve`.
 
-The snapshot/command endpoints deliberately support this single-user development demo. Replace them with per-resource, authenticated endpoints before multi-user deployment. The aggregate snapshot implementation loads the small fixture dataset; it is not intended for a growing production feed.
+The snapshot/command endpoints deliberately support this single-user development demo. Replace them with per-resource, authenticated endpoints before multi-user deployment. The PostgreSQL feed endpoint now uses SQL keyset pagination with timestamp/ID cursors. The demo snapshot and command endpoints still load the fixture dataset and are not intended for production scale.
 
 ## Check and build
 
