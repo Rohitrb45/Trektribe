@@ -24,6 +24,12 @@ test('HTTP API enforces demo auth, validates requests, pages feed, and persists 
   const next=await(await fetch(`${base}/feed?limit=1&cursor=${page.nextCursor}`)).json();assert.equal(next.items.length,1);assert.notEqual(page.items[0].id,next.items[0].id);
   const headers={Authorization:'Bearer trektribe-local-demo','Content-Type':'application/json'};
   const before=await(await fetch(`${base}/demo/state`,{headers})).json();
+  assert.equal((await fetch(`${base}/me`)).status,401);
+  assert.equal((await(await fetch(`${base}/me`,{headers})).json()).id,before.profile.id);
+  const report={id:'00000000-0000-4000-8000-000000000997',trekId:before.treks[0].id,content:'Resource report',rating:4,condition:'Clear',observedAt:'2020-01-01'};
+  assert.equal((await fetch(`${base}/posts`,{method:'POST',headers,body:JSON.stringify({...report,userId:'spoof'})})).status,400);
+  const resource=await fetch(`${base}/posts`,{method:'POST',headers,body:JSON.stringify(report)});
+  assert.equal(resource.status,201);assert.equal((await resource.json()).userId,before.profile.id);
   const updated=await fetch(`${base}/demo/commands`,{method:'POST',headers,body:JSON.stringify({type:'save',trekId:before.treks[0].id,saved:true})});assert.equal(updated.status,201);
   const after=await(await fetch(`${base}/demo/state`,{headers})).json();assert.equal(after.saved[after.profile.id].length,1);
   assert.equal((await fetch(`${base}/demo/commands`,{method:'POST',headers,body:JSON.stringify({type:'join',tripId:'invalid'})})).status,400);
