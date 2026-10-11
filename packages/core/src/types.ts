@@ -12,10 +12,13 @@ export type Post = {
 };
 export type Comment = { id: string; postId: string; userId: string; author: string; body: string; createdAt: string };
 export type Member = { userId: string; status: 'accepted' | 'pending'; };
-export type Trip = { id: string; trekId: string; title: string; organizerId: string; organizer: string; startsAt: string; maxParticipants: number; members: Member[]; status: 'open' | 'closed' };
+export type Trip = { id: string; trekId: string; title: string; organizerId: string; organizer: string; startsAt: string; timezone?: string; maxParticipants: number; members: Member[]; status: 'open' | 'closed' };
 export type Profile = { id: string; name: string; initials: string; username: string; bio: string; level: string; completed: number; distanceKm: number; gear: string[]; badges: string[] };
 export type State = { version: 1; treks: Trek[]; posts: Post[]; comments: Comment[]; trips: Trip[]; saved: Record<string, string[]>; profile: Profile };
 export type Command =
+  | { type: 'profile'; name: string; bio: string; level: string; gear: string[] }
+  | { type: 'create-trip'; id: string; trekId: string; title: string; startsAt: string; timezone: string; maxParticipants: number }
+  | { type: 'cancel-trip'; tripId: string }
   | { type: 'save'; trekId: string; saved: boolean }
   | { type: 'like'; postId: string; liked: boolean }
   | { type: 'post'; id: string; trekId: string; content: string; rating: number; condition: string; observedAt: string }
