@@ -1,6 +1,18 @@
 # Verification report — first milestone
 
-## Latest verification — 2026-10-11
+## Resumed development — 2026-10-19
+
+Implementation commit: `9ba060c`, branch `feature/trektribe-multiuser`.
+
+- Completed the GPX file-picker interface and persisted outing chat (migration 006), with transactional message/outbox writes, acknowledgments after commit, reconnect history, and accepted-member authorization.
+- Typechecking, API compilation, and web export passed locally with Node.js 22.23.3.
+- The initial local suite passed 15/16 tests; the HTTP server hit its 30-second cold-start deadline without output. Running that test alone passed in about nine seconds. The timeout was not relaxed.
+- Database/socket integration tests additionally cover invalid credentials, forged sender fields, conflicting retries, message persistence, reconnect backfill, and membership removal.
+- Both jobs passed in the [implementation validation run](https://github.com/Rohitrb45/Trektribe/actions/runs/39270025566): all 16 unit/HTTP tests, typechecking, API/web builds, Android/iOS bundle exports, and the real PostgreSQL/PostGIS/socket integration suite.
+- Physical-device testing remains deferred at the user's request. Live OIDC provider redirects, native binaries, Redis multi-server delivery, maps, media, and GPS recording are not verified by these checks.
+- See [feature validation](FEATURE_VALIDATION.md) for manual checks and current chat limitations.
+
+## Previous verification — 2026-10-11
 
 Implementation commit: `4291cac`, branch `feature/trektribe-database-validation`.
 
