@@ -5,12 +5,13 @@ import { Pool, PoolClient } from 'pg';
 import { applyCommand, Command, createSeed, DEMO_USER, DomainError, State } from '../../../packages/core/src/index';
 import { FeedCursor, FeedPage, feedPage } from './feed';
 import { Identity } from './auth';
-export interface Store { read(actor?:string):Promise<State>; feed(limit:number,cursor?:FeedCursor):Promise<FeedPage>; execute(command:Command,actor?:string):Promise<State>; close():Promise<void> }
+import { interactionAllowed } from './blocks';
+export interface Store { read(actor?:string):Promise<State>; feed(limit:number,cursor?:FeedCursor,actor?:string):Promise<FeedPage>; execute(command:Command,actor?:string):Promise<State>; close():Promise<void> }
 
 export class DemoStore implements Store {
   private queue:Promise<unknown>=Promise.resolve();
   constructor(private path:string){}
-  async feed(limit:number,cursor?:FeedCursor):Promise<FeedPage>{
+  async feed(limit:number,cursor?:FeedCursor,actor=DEMO_USER):Promise<FeedPage>{
     let posts=(await this.read()).posts.map(p=>({...p,createdAt:new Date(p.createdAt).toISOString()}));
     posts.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)||b.id.localeCompare(a.id));
     if(cursor){const date=new Date(cursor.createdAt).toISOString();posts=posts.filter(p=>p.createdAt<date||(p.createdAt===date&&p.id<cursor.id));}
@@ -75,6 +76,7 @@ export class PostgresStore implements Store {
       // Same parent-row lock as approval/leave prevents roster races.
       const trip=(await c.query('SELECT * FROM group_treks WHERE id=$1 FOR UPDATE',[invite.trip_id])).rows[0];
       const row=(await c.query('SELECT * FROM trip_invitations WHERE token_hash=$1 FOR UPDATE',[hash])).rows[0];
+      await interactionAllowed(c,actor,trip.organizer_id);
       if(row.redeemed_by===actor){await c.query('COMMIT');return {tripId:trip.id};}
       if(row.redeemed_by||new Date(row.expires_at).getTime()<=Date.now())throw new DomainError('INVALID_INVITATION','Invitation is invalid or expired.',404);
       if(trip.status!=='open'||new Date(trip.starts_at).getTime()<=Date.now())throw new DomainError('TRIP_CLOSED','This outing is closed.',409);
@@ -85,16 +87,16 @@ export class PostgresStore implements Store {
       await c.query('COMMIT');return {tripId:trip.id};
     }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
   }
-  async feed(limit:number,cursor?:FeedCursor):Promise<FeedPage>{
+  async feed(limit:number,cursor?:FeedCursor,actor=DEMO_USER):Promise<FeedPage>{
     // Preserve PostgreSQL microseconds in cursors; JS Date truncates them.
     const rows=await this.pool.query(`SELECT p.id,p.user_id AS "userId",u.name AS author,
       u.profile->>'initials' AS initials,p.trek_id AS "trekId",p.content,p.rating,p.condition,
       to_char(p.observed_at,'YYYY-MM-DD') AS "observedAt",
       to_char(p.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "createdAt",
-      COALESCE((SELECT json_agg(l.user_id ORDER BY l.user_id) FROM post_likes l WHERE l.post_id=p.id),'[]') AS "likedBy"
+      COALESCE((SELECT json_agg(l.user_id ORDER BY l.user_id) FROM post_likes l WHERE l.post_id=p.id AND NOT users_blocked($4,l.user_id)),'[]') AS "likedBy"
       FROM posts p JOIN users u ON u.id=p.user_id
-      WHERE ($1::timestamptz IS NULL OR (p.created_at,p.id)<($1::timestamptz,$2::uuid))
-      ORDER BY p.created_at DESC,p.id DESC LIMIT $3`,[cursor?.createdAt??null,cursor?.id??null,limit+1]);
+      WHERE NOT users_blocked($4,p.user_id) AND ($1::timestamptz IS NULL OR (p.created_at,p.id)<($1::timestamptz,$2::uuid))
+      ORDER BY p.created_at DESC,p.id DESC LIMIT $3`,[cursor?.createdAt??null,cursor?.id??null,limit+1,actor]);
     return feedPage(rows.rows,limit);
   }
   async read(actor=DEMO_USER):Promise<State>{
@@ -104,9 +106,9 @@ export class PostgresStore implements Store {
   }
   private async snapshot(db:DB,actor=DEMO_USER):Promise<State>{
     const treks=await db.query(`SELECT id,current_route_version_id AS "routeVersionId",owner_id AS "ownerId",(SELECT has_elevation FROM route_versions WHERE id=treks.current_route_version_id) AS "hasElevation",title,region,description,difficulty,distance_km::float AS "distanceKm", elevation_m AS "elevationM", duration,altitude_m AS "altitudeM",rating::float,report_count AS reports,color,highlights,ST_AsGeoJSON(trailhead_location::geometry)::json->'coordinates' AS coordinates,ST_AsGeoJSON(route_geometry)::json->'coordinates' AS route FROM treks ORDER BY id`);
-    const posts=await db.query(`SELECT p.id,p.user_id AS "userId",u.name AS author,u.profile->>'initials' AS initials,p.trek_id AS "trekId",p.content,p.rating,p.condition,to_char(p.observed_at,'YYYY-MM-DD') AS "observedAt",p.created_at AS "createdAt",COALESCE((SELECT json_agg(l.user_id) FROM post_likes l WHERE l.post_id=p.id),'[]') AS "likedBy" FROM posts p JOIN users u ON u.id=p.user_id ORDER BY p.created_at DESC,p.id DESC`);
-    const comments=await db.query(`SELECT c.id,c.post_id AS "postId",c.user_id AS "userId",u.name AS author,c.body,c.created_at AS "createdAt" FROM comments c JOIN users u ON u.id=c.user_id ORDER BY c.created_at,c.id`);
-    const trips=await db.query(`SELECT g.id,g.route_version_id AS "routeVersionId",g.trek_id AS "trekId",g.title,g.organizer_id AS "organizerId",u.name AS organizer,g.starts_at AS "startsAt",g.max_participants AS "maxParticipants",g.status,g.timezone,g.visibility,COALESCE((SELECT json_agg(json_build_object('userId',m.user_id,'status',m.status)) FROM group_trek_members m WHERE m.trip_id=g.id),'[]') AS members FROM group_treks g JOIN users u ON u.id=g.organizer_id WHERE g.visibility='public' OR g.organizer_id=$1 OR EXISTS(SELECT 1 FROM group_trek_members access WHERE access.trip_id=g.id AND access.user_id=$1) ORDER BY g.starts_at,g.id`,[actor]);
+    const posts=await db.query(`SELECT p.id,p.user_id AS "userId",u.name AS author,u.profile->>'initials' AS initials,p.trek_id AS "trekId",p.content,p.rating,p.condition,to_char(p.observed_at,'YYYY-MM-DD') AS "observedAt",p.created_at AS "createdAt",COALESCE((SELECT json_agg(l.user_id) FROM post_likes l WHERE l.post_id=p.id AND NOT users_blocked($1,l.user_id)),'[]') AS "likedBy" FROM posts p JOIN users u ON u.id=p.user_id WHERE NOT users_blocked($1,p.user_id) ORDER BY p.created_at DESC,p.id DESC`,[actor]);
+    const comments=await db.query(`SELECT c.id,c.post_id AS "postId",c.user_id AS "userId",u.name AS author,c.body,c.created_at AS "createdAt" FROM comments c JOIN users u ON u.id=c.user_id JOIN posts p ON p.id=c.post_id WHERE NOT users_blocked($1,c.user_id) AND NOT users_blocked($1,p.user_id) ORDER BY c.created_at,c.id`,[actor]);
+    const trips=await db.query(`SELECT g.id,g.route_version_id AS "routeVersionId",g.trek_id AS "trekId",g.title,g.organizer_id AS "organizerId",u.name AS organizer,g.starts_at AS "startsAt",g.max_participants AS "maxParticipants",g.status,g.timezone,g.visibility,COALESCE((SELECT json_agg(json_build_object('userId',m.user_id,'status',m.status)) FROM group_trek_members m WHERE m.trip_id=g.id),'[]') AS members FROM group_treks g JOIN users u ON u.id=g.organizer_id WHERE (g.visibility='public' AND NOT users_blocked($1,g.organizer_id)) OR g.organizer_id=$1 OR EXISTS(SELECT 1 FROM group_trek_members access WHERE access.trip_id=g.id AND access.user_id=$1) ORDER BY g.starts_at,g.id`,[actor]);
     const savedRows=await db.query('SELECT user_id,trek_id FROM saved_treks WHERE user_id=$1',[actor]);
     const profile=await db.query('SELECT profile FROM users WHERE id=$1',[actor]);
     if(!profile.rows[0])throw new Error('Database has not been seeded. Run npm run db:migrate.');
@@ -121,6 +123,15 @@ export class PostgresStore implements Store {
       if('tripId' in command)await c.query('SELECT id FROM group_treks WHERE id=$1 FOR UPDATE',[command.tripId]);
       // Serialize repeated client-generated creation IDs before validating idempotency.
       if(command.type==='post'||command.type==='comment'||command.type==='create-trip')await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[command.id]);
+      if(command.type==='like'||command.type==='comment'){
+        const author=(await c.query('SELECT user_id FROM posts WHERE id=$1',[command.postId])).rows[0];
+        if(author)await interactionAllowed(c,actor,author.user_id);
+      }
+      if(command.type==='join'){
+        const trip=(await c.query('SELECT organizer_id FROM group_treks WHERE id=$1',[command.tripId])).rows[0];
+        if(trip)await interactionAllowed(c,actor,trip.organizer_id);
+      }
+      if(command.type==='approve')await interactionAllowed(c,actor,command.userId);
       const before=await this.snapshot(c,actor);const next=applyCommand(before,command,actor);
       if(command.type==='profile'){
         await c.query('UPDATE users SET name=$1,profile=$2 WHERE id=$3',[next.profile.name,JSON.stringify(next.profile),actor]);

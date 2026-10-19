@@ -23,3 +23,10 @@ Socket events are `trip:send` (tripId, id, body) and `trip:sync` (tripId, after)
 The current dispatcher supports one API process. It sends only change notifications to currently accepted members; disconnected clients backfill on reconnect. Redis fan-out, presence, persistent unsent drafts, and multi-process delivery are not implemented. Unsent drafts can be lost when the app closes. Device lifecycle and live OIDC redirects remain unverified.
 
 Run `npm test` for local checks and `npm run test:db` with `TEST_DATABASE_URL` for real PostGIS/socket tests. The database suite creates and drops its own test database. See `VERIFICATION.md` for recorded results.
+# User blocking (PostgreSQL API)
+
+Apply migrations with `npm run db:migrate` before starting the API. In Community, select **Block author** on another person's report. Their reports disappear after refresh. In Profile, open **Blocked people** to unblock them. Local-only mode does not offer blocking; a connected JSON demo returns an explanatory error because blocking requires PostgreSQL.
+
+With two accounts, verify both feeds hide the other's reports and comments; likes, comments, new joins, approvals and invitation redemption fail between blocked accounts. Unblocking one side does not override a block made by the other account. Existing shared outings and rosters remain accessible so participants can leave; chat history fetched from the server excludes blocked authors. Shared group messages can still be sent to other participants. Public trail geometry remains accessible.
+
+Refresh other open app sessions and reopen conversations after changing blocks: already downloaded content is not remotely erased. The database integration suite exercises these rules without requiring an external identity provider. Live two-account sign-in and physical-device checks remain pending.

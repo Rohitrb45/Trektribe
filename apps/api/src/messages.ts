@@ -14,7 +14,7 @@ export class MessageRepository {
     try{
       await c.query('BEGIN');await this.member(c,tripId,actor);
       const rows=await c.query(`SELECT m.id,m.sequence::float AS sequence,m.user_id AS "userId",u.name AS author,m.body,m.created_at AS "createdAt"
-        FROM trip_messages m JOIN users u ON u.id=m.user_id WHERE m.trip_id=$1 AND m.sequence>$2 ORDER BY m.sequence LIMIT $3`,[tripId,after,limit+1]);
+        FROM trip_messages m JOIN users u ON u.id=m.user_id WHERE m.trip_id=$1 AND m.sequence>$2 AND NOT users_blocked($4,m.user_id) ORDER BY m.sequence LIMIT $3`,[tripId,after,limit+1,actor]);
       await c.query('COMMIT');const items=rows.rows.slice(0,limit);return {items,hasMore:rows.rows.length>limit,nextSequence:items.at(-1)?.sequence??after};
     }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
   }

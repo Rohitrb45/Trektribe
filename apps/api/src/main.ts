@@ -13,6 +13,7 @@ import { configuredVerifier } from './auth';
 import { RouteRepository } from './routes';
 import { MessageRepository } from './messages';
 import { startRealtime } from './realtime';
+import { BlockRepository } from './blocks';
 const routeSchema=z.object({gpx:z.string().min(1).max(1_000_000),title:z.string().trim().min(1).max(120),region:z.string().trim().min(1).max(120),description:z.string().max(5000),difficulty:z.enum(['Easy','Moderate','Hard'])}).strict();
 
 if(process.env.NODE_ENV==='production')throw new Error('Production startup remains disabled until all resource policies and external integrations are verified.');
@@ -31,6 +32,15 @@ function demoOnly(){if(oidc)throw new NotFoundException();}
 
 @Controller('v1')
 class ApiController {
+ @Get('me/blocks') async blocks(@Req() req:any){
+   const user=await actor(req);if(!(store instanceof PostgresStore))throw new HttpException('Blocking requires PostgreSQL.',409);
+   return new BlockRepository(store.pool).list(user);
+ }
+ @HttpPost('me/blocks/:id') async block(@Req() req:any,@Param('id') id:string,@Body() body:unknown){
+   const user=await actor(req);if(!(store instanceof PostgresStore))throw new HttpException('Blocking requires PostgreSQL.',409);
+   const data=z.object({blocked:z.boolean()}).strict().parse(body);
+   return new BlockRepository(store.pool).set(user,z.uuid().parse(id),data.blocked);
+ }
  @Get('group-treks/:id/messages') async messages(@Req() req:any,@Param('id') id:string,@Query() query:unknown){
    const user=await actor(req);if(!(store instanceof PostgresStore))throw new HttpException('Conversations require PostgreSQL.',409);
    const q=z.object({after:z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),limit:z.coerce.number().int().min(1).max(100).default(50)}).strict().parse(query);
@@ -109,8 +119,8 @@ class ApiController {
    return {items};
  }
  @Get('treks/:id') async trek(@Req() req:any,@Param('id') id:string){z.uuid().parse(id);const trek=(await store.read(oidc?await actor(req):DEMO_USER)).treks.find(t=>t.id===id);if(!trek)throw new DomainError('NOT_FOUND','Trail not found.',404);return trek;}
- @Get('feed') async feed(@Query() query:unknown){
-   const q=feedSchema.parse(query);return store.feed(q.limit,decodeCursor(q.cursor));
+ @Get('feed') async feed(@Req() req:any,@Query() query:unknown){
+   const q=feedSchema.parse(query);return store.feed(q.limit,decodeCursor(q.cursor),oidc?await actor(req):DEMO_USER);
  }
  @Get('group-treks') async trips(@Req() req:any){return {items:(await store.read(await actor(req))).trips};}
 }

@@ -28,7 +28,7 @@ export class RouteRepository {
   async forTrip(tripId:string,actor:string){
     const rows=await this.pool.query(`SELECT r.id,ST_AsGeoJSON(r.geometry)::json->'coordinates' AS coordinates,r.distance_km AS "distanceKm",r.elevation_m AS "elevationM",r.has_elevation AS "hasElevation"
       FROM group_treks g JOIN route_versions r ON r.id=g.route_version_id WHERE g.id=$1 AND
-      (g.visibility='public' OR g.organizer_id=$2 OR EXISTS(SELECT 1 FROM group_trek_members m WHERE m.trip_id=g.id AND m.user_id=$2))`,[tripId,actor]);
+      ((g.visibility='public' AND NOT users_blocked($2,g.organizer_id)) OR g.organizer_id=$2 OR EXISTS(SELECT 1 FROM group_trek_members m WHERE m.trip_id=g.id AND m.user_id=$2))`,[tripId,actor]);
     if(!rows.rows[0])throw new DomainError('NOT_FOUND','Outing not found.',404);return rows.rows[0];
   }
 }
