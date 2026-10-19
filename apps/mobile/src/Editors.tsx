@@ -1,7 +1,9 @@
 import React, { useRef, useState } from 'react';
 import { Button, Modal, ScrollView, Text, TextInput, View } from 'react-native';
 import { Command, Profile, Trek } from '@trektribe/core';
-import { makeId, apiUrl, acceptInvitation } from './data';
+import { makeId, apiUrl, acceptInvitation, importGpx } from './data';
+import * as DocumentPicker from 'expo-document-picker';
+import { File } from 'expo-file-system';
 
 type Actions = { busy: boolean; onClose: () => void; onSubmit: (command: Command) => Promise<boolean> };
 function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -49,5 +51,28 @@ export function InvitationSheet({ token, onClose, onAccepted }: { token?: string
       <Field label="Invitation code" value={value} onChange={setValue}/>{!!error&&<Text accessibilityRole="alert">{error}</Text>}
       <Button title="Accept invitation" disabled={busy||!value.trim()} onPress={async()=>{setBusy(true);try{await acceptInvitation(value.trim());onAccepted();onClose();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}}/>
     </>}
+  </Sheet>;
+}
+
+export function RouteEditor({ trek, onClose, onImported }: { trek?:Trek;onClose:()=>void;onImported:()=>void }) {
+  const [title,setTitle]=useState(trek?.title||''),[region,setRegion]=useState(trek?.region||''),[description,setDescription]=useState(trek?.description||''),[difficulty,setDifficulty]=useState(trek?.difficulty||'Easy');
+  const [gpx,setGpx]=useState(''),[filename,setFilename]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+  const pick=async()=>{
+    try{
+      const result=await DocumentPicker.getDocumentAsync({type:'*/*',copyToCacheDirectory:true,base64:false});
+      if(result.canceled)return;
+      const asset=result.assets[0];
+      if(!asset.name.toLowerCase().endsWith('.gpx'))throw new Error('Choose a .gpx file.');
+      const file=asset.file||new File(asset.uri);
+      if((asset.size??file.size)>1_000_000)throw new Error('Choose a GPX file smaller than 1 MB.');
+      setGpx(await file.text());setFilename(asset.name);setError('');
+    }catch(e){setError((e as Error).message);}
+  };
+  return <Sheet title={trek?'Replace route':'Import a trail'} onClose={onClose}>
+    <Text>{trek?'Existing outings keep their original route.':'The trail will be visible to other users.'} Import one continuous GPX track or route, up to 1 MB and 10,000 points. Review the source before sharing.</Text>
+    <Field label="Trail name" value={title} onChange={setTitle}/><Field label="Region" value={region} onChange={setRegion}/><Field label="Description" value={description} onChange={setDescription} multiline/>
+    {(['Easy','Moderate','Hard'] as const).map(d=><Button key={d} title={`${difficulty===d?'✓ ':''}${d}`} onPress={()=>setDifficulty(d)}/>)}
+    <Button title={filename||'Choose GPX file'} onPress={pick}/>{!!error&&<Text accessibilityRole="alert">{error}</Text>}
+    <Button title="Publish route" disabled={busy||!gpx||!title.trim()||!region.trim()} onPress={async()=>{setBusy(true);try{await importGpx({gpx,title,region,description,difficulty},trek?.id);onImported();onClose();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}}/>
   </Sheet>;
 }

@@ -11,6 +11,8 @@ import { commandSchema, searchSchema, feedSchema } from './validation';
 import { decodeCursor } from './feed';
 import { configuredVerifier } from './auth';
 import { RouteRepository } from './routes';
+import { MessageRepository } from './messages';
+import { startRealtime } from './realtime';
 const routeSchema=z.object({gpx:z.string().min(1).max(1_000_000),title:z.string().trim().min(1).max(120),region:z.string().trim().min(1).max(120),description:z.string().max(5000),difficulty:z.enum(['Easy','Moderate','Hard'])}).strict();
 
 if(process.env.NODE_ENV==='production')throw new Error('Production startup remains disabled until all resource policies and external integrations are verified.');
@@ -29,6 +31,16 @@ function demoOnly(){if(oidc)throw new NotFoundException();}
 
 @Controller('v1')
 class ApiController {
+ @Get('group-treks/:id/messages') async messages(@Req() req:any,@Param('id') id:string,@Query() query:unknown){
+   const user=await actor(req);if(!(store instanceof PostgresStore))throw new HttpException('Conversations require PostgreSQL.',409);
+   const q=z.object({after:z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),limit:z.coerce.number().int().min(1).max(100).default(50)}).strict().parse(query);
+   return new MessageRepository(store.pool).list(z.uuid().parse(id),user,q.after,q.limit);
+ }
+ @HttpPost('group-treks/:id/messages') async message(@Req() req:any,@Param('id') id:string,@Body() body:unknown){
+   const user=await actor(req);if(!(store instanceof PostgresStore))throw new HttpException('Conversations require PostgreSQL.',409);
+   const data=z.object({id:z.uuid(),body:z.string().trim().min(1).max(2000)}).strict().parse(body);
+   return new MessageRepository(store.pool).send(z.uuid().parse(id),user,data.id,data.body);
+ }
  @HttpPost('treks/import') async importRoute(@Req() req:any,@Body() body:unknown){
    const user=await actor(req);if(!(store instanceof PostgresStore))throw new HttpException('GPX import requires PostgreSQL.',409);
    const {gpx,...metadata}=routeSchema.parse(body);return new RouteRepository(store.pool).publish(user,gpx,metadata);
@@ -115,8 +127,9 @@ async function bootstrap(){
    response.status(status).json({error:{code:exception instanceof DomainError?exception.code:status===400?'VALIDATION_ERROR':status===401?'UNAUTHORIZED':'REQUEST_FAILED',message,requestId}});
  }});
  app.enableShutdownHooks();
+ const stopRealtime=store instanceof PostgresStore?startRealtime(app.getHttpServer(),store.pool,authorization=>actor({headers:{authorization}}),(process.env.CORS_ORIGINS||'http://localhost:8081,http://127.0.0.1:8081').split(',')):undefined;
  await app.listen(Number(process.env.PORT||3001),process.env.HOST||'127.0.0.1');
  console.log(`TrekTribe demo API: http://${process.env.HOST||'127.0.0.1'}:${process.env.PORT||3001}/v1/health`);
- const stop=async()=>{await app.close();await store.close();process.exit(0);};process.once('SIGTERM',stop);process.once('SIGINT',stop);
+ const stop=async()=>{await stopRealtime?.();await app.close();await store.close();process.exit(0);};process.once('SIGTERM',stop);process.once('SIGINT',stop);
 }
 bootstrap().catch(error=>{console.error(error);process.exit(1);});

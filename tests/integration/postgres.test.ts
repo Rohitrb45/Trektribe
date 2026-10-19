@@ -7,6 +7,11 @@ import { Pool } from 'pg';
 import { PostgresStore } from '../../apps/api/src/store';
 import { decodeCursor } from '../../apps/api/src/feed';
 import { RouteRepository } from '../../apps/api/src/routes';
+import { MessageRepository } from '../../apps/api/src/messages';
+import { startRealtime } from '../../apps/api/src/realtime';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
+import { io } from 'socket.io-client';
 import { createSeed, DEMO_USER, DomainError } from '../../packages/core/src/index';
 
 const exec = promisify(execFile);
@@ -35,7 +40,7 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await db.pool.query('UPDATE users SET name=$1 WHERE id=$2', ['Preserved name', DEMO_USER]);
       await migrate();
       assert.equal((await db.pool.query('SELECT name FROM users WHERE id=$1', [DEMO_USER])).rows[0].name, 'Preserved name');
-      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 5);
+      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 6);
       const state = await db.read();
       assert.equal(state.treks.length, seed.treks.length);
       assert.deepEqual(state.treks[0].coordinates, seed.treks[0].coordinates);
@@ -117,6 +122,44 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await assert.rejects(db.pool.query('UPDATE route_versions SET elevation_m=999 WHERE id=$1',[imported.routeVersionId]));
       const outsider=await db.identify({issuer:'https://identity.example',subject:'route-outsider'});
       await assert.rejects(routes.publish(outsider,xml,metadata,imported.trekId));
+    });
+
+    await t.test('chat acknowledgments persist, retries deduplicate, reconnect backfills, and removed members lose access', async () => {
+      const guest=await db.identify({issuer:'https://identity.example',subject:'chat-guest'});
+      const tripId=randomUUID();
+      await db.execute({type:'create-trip',id:tripId,trekId:seed.treks[0].id,title:'Chat outing',startsAt:new Date(Date.now()+86400000).toISOString(),timezone:'UTC',maxParticipants:4});
+      await db.execute({type:'join',tripId},guest);await db.execute({type:'approve',tripId,userId:guest});
+      const http=createServer();
+      const stop=startRealtime(http,db.pool,async token=>{if(token!=='Bearer test-guest')throw new Error('Invalid token');return guest;},[]);
+      http.listen(0,'127.0.0.1');await once(http,'listening');
+      const port=(http.address() as {port:number}).port;
+      const socket=io(`http://127.0.0.1:${port}`,{auth:{token:'test-guest'},autoConnect:false,reconnection:false});
+      try{
+        const connected=once(socket,'connect',{signal:AbortSignal.timeout(5000)});socket.connect();await connected;
+        const invalid=io(`http://127.0.0.1:${port}`,{auth:{token:'invalid'},autoConnect:false,reconnection:false});
+        try{const rejected=once(invalid,'connect_error',{signal:AbortSignal.timeout(5000)});invalid.connect();await rejected;assert.equal(invalid.connected,false);}finally{invalid.disconnect();}
+        const id=randomUUID();
+        const ack=await socket.timeout(5000).emitWithAck('trip:send',{tripId,id,body:'Meet at the trailhead'});
+        assert.equal(ack.ok,true);assert.equal(ack.sequence,1);
+        const repeat=await socket.timeout(5000).emitWithAck('trip:send',{tripId,id,body:'Meet at the trailhead'});
+        assert.equal(repeat.sequence,1);
+        const conflict=await socket.timeout(5000).emitWithAck('trip:send',{tripId,id,body:'Changed body'});
+        assert.equal(conflict.ok,false);
+        const spoofed=await socket.timeout(5000).emitWithAck('trip:send',{tripId,id:randomUUID(),body:'Spoof',userId:DEMO_USER});
+        assert.equal(spoofed.ok,false);
+        const repository=new MessageRepository(db.pool);
+        assert.equal((await repository.list(tripId,guest)).items.length,1);
+        socket.disconnect();
+        await repository.send(tripId,DEMO_USER,randomUUID(),'Bring water');
+        const reconnected=once(socket,'connect',{signal:AbortSignal.timeout(5000)});socket.connect();await reconnected;
+        const backfill=await socket.timeout(5000).emitWithAck('trip:sync',{tripId,after:1});
+        assert.equal(backfill.ok,true);assert.equal(backfill.items[0].body,'Bring water');assert.equal(backfill.items[0].sequence,2);
+        await db.execute({type:'leave',tripId},guest);
+        const denied=await socket.timeout(5000).emitWithAck('trip:sync',{tripId,after:0});
+        assert.equal(denied.ok,false);assert.equal(denied.items,undefined);
+        await assert.rejects(repository.send(tripId,guest,randomUUID(),'No access'));
+        assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM trip_outbox WHERE trip_id=$1',[tripId])).rows[0].n,2);
+      }finally{socket.disconnect();await stop();}
     });
 
     await t.test('concurrent duplicate writes persist once and invalid mutations roll back', async () => {

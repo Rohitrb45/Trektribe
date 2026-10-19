@@ -12,6 +12,12 @@ export async function acceptInvitation(token:string) {
   if(!apiUrl)throw new Error('Invitations require a connected PostgreSQL API.');
   return request<{tripId:string}>('/invitations/accept',{token});
 }
+export function importGpx(body:{gpx:string;title:string;region:string;description:string;difficulty:string},trekId?:string){
+  return request<{trekId:string;routeVersionId:string}>(trekId?`/treks/${trekId}/route-versions`:'/treks/import',body);
+}
+export function pinnedRoute(tripId:string){
+  return request<{id:string;coordinates:[number,number][];distanceKm:number;elevationM:number;hasElevation:boolean}>(`/group-treks/${tripId}/route`);
+}
 let queue: Promise<unknown> = Promise.resolve();
 async function request<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`${apiUrl}/v1${path}`, {
