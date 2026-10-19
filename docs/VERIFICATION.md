@@ -1,5 +1,15 @@
 # Verification report — first milestone
 
+## User blocking — 2026-10-19
+
+Implementation commit: `47ec06a`, branch `feature/trektribe-multiuser`.
+
+- Added migration 007, block/unblock endpoints, report-author blocking, and a profile block list. Feed, comments, likes, outing discovery, invitations and group-message history enforce bilateral blocks. Existing outing memberships remain available for leaving.
+- Typechecking, all 16 unit/HTTP tests, API compilation and web export passed locally. The sandbox initially prevented Node's user lookup; the same tests passed outside that sandbox.
+- Both jobs passed in [blocking validation CI](https://github.com/Rohitrb45/Trektribe/actions/runs/39274490267): real PostgreSQL/PostGIS integration tests, unit/HTTP tests, typechecking, API/web builds, and Android/iOS bundle exports.
+- The new integration scenario covers bilateral visibility, invitation retry denial, blocked mutations, shared chat filtering, preserved membership, leaving, and independent unblock ownership.
+- Already loaded content in other sessions requires refresh/reopening. No live provider or physical-device testing was performed. Production startup remains disabled.
+
 ## Resumed development — 2026-10-19
 
 Implementation commit: `9ba060c`, branch `feature/trektribe-multiuser`.
