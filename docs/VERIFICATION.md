@@ -1,5 +1,14 @@
 # Verification report — first milestone
 
+## Report rating aggregation — 2026-10-19
+
+Implementation commit: `fb5d1a1`, branch `feature/trektribe-multiuser`.
+
+- Migration 008 adds a live report aggregate view and trail/rating index. API totals use persisted reports, with one vote per report and averages rounded to one decimal. Unrated trails display "Not rated". Legacy local demo data is recalculated without losing reports.
+- Local Node.js 22.23.3: typechecking, all 18 unit/HTTP tests, API compilation, web export, and Android/iOS Hermes bundle exports passed.
+- New database tests cover duplicate retries, concurrent writes from independent pools, conflicts, block-independent totals, and removal of reports. The [rating CI run](https://github.com/Rohitrb45/Trektribe/actions/runs/39281774705) was still queued when this report was recorded; these new PostgreSQL checks are not yet verified.
+- Bundle exports are not APK/IPA builds or physical-device validation. No live provider or device test was performed.
+
 ## User blocking — 2026-10-19
 
 Implementation commit: `47ec06a`, branch `feature/trektribe-multiuser`.
