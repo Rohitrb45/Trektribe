@@ -23,7 +23,18 @@ Socket events are `trip:send` (tripId, id, body) and `trip:sync` (tripId, after)
 The current dispatcher supports one API process. It sends only change notifications to currently accepted members; disconnected clients backfill on reconnect. Redis fan-out, presence, persistent unsent drafts, and multi-process delivery are not implemented. Unsent drafts can be lost when the app closes. Device lifecycle and live OIDC redirects remain unverified.
 
 Run `npm test` for local checks and `npm run test:db` with `TEST_DATABASE_URL` for real PostGIS/socket tests. The database suite creates and drops its own test database. See `VERIFICATION.md` for recorded results.
-# User blocking (PostgreSQL API)
+## Trail rating totals
+
+Each published report contributes one rating, including repeat visits by the same author. The average is rounded to one decimal; the report count includes all published reports. Blocking filters personal content without changing the shared average. Unrated trails return `rating: 0, reports: 0` and display **Not rated**.
+
+1. Start with `npm run web`. For a connected PostgreSQL API, apply migration 008 with `npm run db:migrate` first.
+2. Find a trail with no reports. Publish a report rated 2, then a second report rated 5 for that trail.
+3. Return to Explore: expect **3.5 (2 reports)**. Reload the app and verify the same result.
+4. Retrying a report with the same request ID must not increase the total. Automated tests also cover concurrent submissions, rounding and unchanged averages after blocking.
+
+Existing local demo storage is recalculated on load without deleting reports. PostgreSQL uses a live aggregate view, so inserts and removals cannot leave stale counters. Legacy sample totals remain in the database for compatibility but are not used by the API. This policy does not yet include moderation or abuse weighting.
+
+## User blocking (PostgreSQL API)
 
 Apply migrations with `npm run db:migrate` before starting the API. In Community, select **Block author** on another person's report. Their reports disappear after refresh. In Profile, open **Blocked people** to unblock them. Local-only mode does not offer blocking; a connected JSON demo returns an explanatory error because blocking requires PostgreSQL.
 

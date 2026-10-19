@@ -1,5 +1,7 @@
 export * from './types';
 export * from './seed';
+export * from './ratings';
+import { withReportRatings } from './ratings';
 import { Command, State, Trek } from './types';
 export class DomainError extends Error {
   constructor(public code: string, message: string, public status = 400) { super(message); }
@@ -57,6 +59,7 @@ export function applyCommand(state: State, command: Command, actor: string, now 
     const existing = s.posts.find(p=>p.id===command.id);
     if (existing) { if (existing.userId !== actor || existing.content !== command.content || existing.trekId !== command.trekId || existing.rating !== command.rating || existing.condition !== command.condition || existing.observedAt !== command.observedAt) throw new DomainError('CONFLICT','This request ID was already used for different content.',409); return s; }
     s.posts.unshift({ ...command, userId: actor, author: s.profile.name, initials: s.profile.initials, createdAt: now, likedBy: [] });
+    return withReportRatings(s);
   } else if (command.type === 'comment') {
     requireValue(s.posts.find(p=>p.id===command.postId));
     if (!command.body.trim() || command.body.length > 1000) throw new DomainError('INVALID_CONTENT','Write between 1 and 1,000 characters.');

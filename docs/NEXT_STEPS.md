@@ -10,7 +10,7 @@ Acceptance: two real accounts can publish separate stories, like each other's po
 
 ## 2. Validate the database and finish trail ingestion
 
-Progress (2026-10-19): PostgreSQL/PostGIS tests cover migrations, persistence, spatial queries, final-slot approvals, private invitations, and pinned route versions. SQL feed pagination, bounded GPX import, and derived distance/elevation metrics are implemented. Rating aggregation remains pending. See `VERIFICATION.md` for evidence.
+Progress (2026-10-19): PostgreSQL/PostGIS tests cover migrations, persistence, spatial queries, final-slot approvals, private invitations, and pinned route versions. SQL feed pagination, bounded GPX import, derived distance/elevation metrics, and report-based rating aggregation are implemented. Each report contributes one vote; averages are rounded to one decimal and totals are derived from persisted reports rather than sample counters. See `VERIFICATION.md` for evidence.
 
 Run the migration and adapter against PostgreSQL/PostGIS in CI. Add concurrent approval tests against a real database. Move feed pagination into SQL instead of reading an aggregate snapshot. Add route-version tables before accepting edits to published geometry. Import GPX with point/file limits and safe XML parsing. Compute route metrics from validated data and derive rating totals from a defined rating policy.
 

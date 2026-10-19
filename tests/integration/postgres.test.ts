@@ -41,7 +41,7 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await db.pool.query('UPDATE users SET name=$1 WHERE id=$2', ['Preserved name', DEMO_USER]);
       await migrate();
       assert.equal((await db.pool.query('SELECT name FROM users WHERE id=$1', [DEMO_USER])).rows[0].name, 'Preserved name');
-      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 7);
+      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 8);
       const state = await db.read();
       assert.equal(state.treks.length, seed.treks.length);
       assert.deepEqual(state.treks[0].coordinates, seed.treks[0].coordinates);
@@ -86,6 +86,30 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await db.execute({type:'like',postId,liked:true},b);
       await assert.rejects(blocks.set(a,a,true));
       await assert.rejects(blocks.set(a,randomUUID(),true));
+    });
+
+    await t.test('ratings derive from persisted reports across retries, concurrency and blocks', async () => {
+      const trekId=seed.treks[3].id;
+      assert.equal((await db.read()).treks.find(t=>t.id===trekId)!.reports,0);
+      const other=await db.identify({issuer:'https://ratings.example',subject:'reviewer'});
+      const post={type:'post' as const,id:randomUUID(),trekId,content:'Rating report',rating:5,condition:'Clear',observedAt:'2020-01-01'};
+      const competitor=new PostgresStore(url.toString());
+      try{
+        await Promise.all([db.execute(post),competitor.execute(post)]);
+        await Promise.all([db.execute({...post,id:randomUUID(),rating:4},other),competitor.execute({...post,id:randomUUID(),rating:4})]);
+        await assert.rejects(db.execute({...post,rating:1}));
+        let trail=(await competitor.read()).treks.find(t=>t.id===trekId)!;
+        assert.equal(trail.reports,3);assert.equal(trail.rating,4.3);
+        const blocks=new BlockRepository(db.pool);
+        await blocks.set(DEMO_USER,other,true);
+        trail=(await db.read()).treks.find(t=>t.id===trekId)!;
+        assert.equal(trail.reports,3);assert.equal(trail.rating,4.3);
+        await blocks.set(DEMO_USER,other,false);
+        // The view follows database removals too; no cached counter can drift.
+        await db.pool.query('DELETE FROM posts WHERE trek_id=$1',[trekId]);
+        trail=(await db.read()).treks.find(t=>t.id===trekId)!;
+        assert.equal(trail.reports,0);assert.equal(trail.rating,0);
+      }finally{await competitor.close();}
     });
 
     await t.test('verified identities are isolated and concurrent first login is idempotent', async () => {

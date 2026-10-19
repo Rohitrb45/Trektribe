@@ -1,4 +1,5 @@
 import { DEMO_USER, State } from './types';
+import { withReportRatings } from './ratings';
 export const seed: State = {
   version: 1,
   profile: { id: DEMO_USER, name: 'Aarav Sharma', initials: 'AS', username: 'aarav.outdoors', bio: 'Collecting quiet mornings and mountain miles. Usually somewhere in the Himalayas.', level: 'Intermediate', completed: 12, distanceKm: 148, gear: ['40L daypack', 'Trekking poles', 'Rain shell', 'First aid kit'], badges: ['Early bird', 'Trail storyteller', '100 km club'] },
@@ -18,4 +19,4 @@ export const seed: State = {
     { id: '00000000-0000-4000-8000-000000000302', trekId: '00000000-0000-4000-8000-000000000102', title: 'A slow weekend on the ridge', organizerId: DEMO_USER, organizer: 'You', startsAt: '2026-11-21T01:00:00Z', maxParticipants: 4, members: [{ userId: DEMO_USER, status: 'accepted' }, { userId: '00000000-0000-4000-8000-000000000003', status: 'pending' }], status: 'open' }
   ], saved: {}
 };
-export function createSeed(): State { return JSON.parse(JSON.stringify(seed)); }
+export function createSeed(): State { return withReportRatings(JSON.parse(JSON.stringify(seed))); }

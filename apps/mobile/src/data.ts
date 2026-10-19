@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { applyCommand, Command, createSeed, DEMO_USER, State, Post, Comment, Profile, Trip, Trek } from '@trektribe/core';
+import { withReportRatings, applyCommand, Command, createSeed, DEMO_USER, State, Post, Comment, Profile, Trip, Trek } from '@trektribe/core';
 import { accessToken, authenticatedMode } from './session';
 const key = 'trektribe.demo.v1';
 export const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
@@ -46,7 +46,7 @@ export async function loadState(): Promise<State> {
   if (!raw) return createSeed();
   const parsed = JSON.parse(raw);
   if (parsed.version !== 1) throw new Error('This saved demo uses a different data version. Clear app storage to restart.');
-  return parsed;
+  return withReportRatings(parsed);
 }
 export function dispatch(command: Command): Promise<State> {
   const result = queue.then(async () => {

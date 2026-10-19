@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { Pool, PoolClient } from 'pg';
-import { applyCommand, Command, createSeed, DEMO_USER, DomainError, State } from '../../../packages/core/src/index';
+import { withReportRatings, applyCommand, Command, createSeed, DEMO_USER, DomainError, State } from '../../../packages/core/src/index';
 import { FeedCursor, FeedPage, feedPage } from './feed';
 import { Identity } from './auth';
 import { interactionAllowed } from './blocks';
@@ -18,7 +18,7 @@ export class DemoStore implements Store {
     return feedPage(posts,limit);
   }
   async read():Promise<State>{
-    try {const s=JSON.parse(await readFile(this.path,'utf8'));if(s.version!==1)throw new Error('Unsupported demo data version');return s;}
+    try {const s=JSON.parse(await readFile(this.path,'utf8'));if(s.version!==1)throw new Error('Unsupported demo data version');return withReportRatings(s);}
     catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return createSeed();throw e;}
   }
   execute(command:Command):Promise<State>{
@@ -105,7 +105,7 @@ export class PostgresStore implements Store {
     catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
   }
   private async snapshot(db:DB,actor=DEMO_USER):Promise<State>{
-    const treks=await db.query(`SELECT id,current_route_version_id AS "routeVersionId",owner_id AS "ownerId",(SELECT has_elevation FROM route_versions WHERE id=treks.current_route_version_id) AS "hasElevation",title,region,description,difficulty,distance_km::float AS "distanceKm", elevation_m AS "elevationM", duration,altitude_m AS "altitudeM",rating::float,report_count AS reports,color,highlights,ST_AsGeoJSON(trailhead_location::geometry)::json->'coordinates' AS coordinates,ST_AsGeoJSON(route_geometry)::json->'coordinates' AS route FROM treks ORDER BY id`);
+    const treks=await db.query(`SELECT id,current_route_version_id AS "routeVersionId",owner_id AS "ownerId",(SELECT has_elevation FROM route_versions WHERE id=treks.current_route_version_id) AS "hasElevation",title,region,description,difficulty,distance_km::float AS "distanceKm", elevation_m AS "elevationM", duration,altitude_m AS "altitudeM",COALESCE(stats.rating,0)::float AS rating,COALESCE(stats.reports,0) AS reports,color,highlights,ST_AsGeoJSON(trailhead_location::geometry)::json->'coordinates' AS coordinates,ST_AsGeoJSON(route_geometry)::json->'coordinates' AS route FROM treks LEFT JOIN trail_report_ratings stats ON stats.trek_id=treks.id ORDER BY id`);
     const posts=await db.query(`SELECT p.id,p.user_id AS "userId",u.name AS author,u.profile->>'initials' AS initials,p.trek_id AS "trekId",p.content,p.rating,p.condition,to_char(p.observed_at,'YYYY-MM-DD') AS "observedAt",p.created_at AS "createdAt",COALESCE((SELECT json_agg(l.user_id) FROM post_likes l WHERE l.post_id=p.id AND NOT users_blocked($1,l.user_id)),'[]') AS "likedBy" FROM posts p JOIN users u ON u.id=p.user_id WHERE NOT users_blocked($1,p.user_id) ORDER BY p.created_at DESC,p.id DESC`,[actor]);
     const comments=await db.query(`SELECT c.id,c.post_id AS "postId",c.user_id AS "userId",u.name AS author,c.body,c.created_at AS "createdAt" FROM comments c JOIN users u ON u.id=c.user_id JOIN posts p ON p.id=c.post_id WHERE NOT users_blocked($1,c.user_id) AND NOT users_blocked($1,p.user_id) ORDER BY c.created_at,c.id`,[actor]);
     const trips=await db.query(`SELECT g.id,g.route_version_id AS "routeVersionId",g.trek_id AS "trekId",g.title,g.organizer_id AS "organizerId",u.name AS organizer,g.starts_at AS "startsAt",g.max_participants AS "maxParticipants",g.status,g.timezone,g.visibility,COALESCE((SELECT json_agg(json_build_object('userId',m.user_id,'status',m.status)) FROM group_trek_members m WHERE m.trip_id=g.id),'[]') AS members FROM group_treks g JOIN users u ON u.id=g.organizer_id WHERE (g.visibility='public' AND NOT users_blocked($1,g.organizer_id)) OR g.organizer_id=$1 OR EXISTS(SELECT 1 FROM group_trek_members access WHERE access.trip_id=g.id AND access.user_id=$1) ORDER BY g.starts_at,g.id`,[actor]);
