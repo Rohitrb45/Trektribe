@@ -1,5 +1,15 @@
 # Verification report — first milestone
 
+## Community discussions — 2026-10-21
+
+Implementation commit: `a8abdd4`, branch `feature/trektribe-multiuser`.
+
+- Migration 010 adds persistent discussion threads and replies. The connected Community screen supports creation, paginated browsing, replies, manual refresh and author-only closing/reopening.
+- Strict request validation derives authorship from the session. Duplicate request IDs are idempotent only for the same actor/content; block checks apply before pagination and before accepting reply retries. Closing and replying serialize on the thread row.
+- Local typechecking, all 20 unit/HTTP tests, API compilation and web export passed. Both jobs passed in [forum validation CI](https://github.com/Rohitrb45/Trektribe/actions/runs/39609929571), including real PostgreSQL/PostGIS integration tests and Android/iOS bundle exports.
+- Integration coverage includes concurrent duplicate submissions, conflicting IDs, ownership, closing/reopening, paging, blocked replies/threads and persistence across connection pools.
+- Forum editing, deletion, moderation and realtime notifications remain pending. Drafts are not persisted after closing the screen. Live sign-in and physical-device behavior remain unverified; exports are not native binary builds.
+
 ## Outing cohosts — 2026-10-21
 
 Implementation commit: `856639e`, branch `feature/trektribe-multiuser`.
