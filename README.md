@@ -111,7 +111,7 @@ curl http://localhost:3001/v1/demo/commands \
   -d '{"type":"save","trekId":"00000000-0000-4000-8000-000000000101","saved":true}'
 ```
 
-Commands are defined in `packages/core/src/types.ts`; runtime schemas are in `apps/api/src/validation.ts`. Current commands: `save`, `like`, `post`, `comment`, `join`, `leave`, and `approve`.
+Commands are defined in `packages/core/src/types.ts`; runtime schemas are in `apps/api/src/validation.ts`. Current commands: `save`, `like`, `post`, `comment`, `join`, `leave`, `approve`, `profile`, `create-trip`, and `cancel-trip`.
 
 The snapshot/command endpoints deliberately support this single-user development demo. Replace them with per-resource, authenticated endpoints before multi-user deployment. The PostgreSQL feed endpoint now uses SQL keyset pagination with timestamp/ID cursors. The demo snapshot and command endpoints still load the fixture dataset and are not intended for production scale.
 
@@ -145,6 +145,8 @@ docs/                 Next implementation milestones
 
 ## Not implemented yet
 
-Real sign-in/authorization; profile editing; photo/video capture and uploads; real basemaps; immutable route versions and GPX import; outing creation/private invitations; real-time chat/forums; notifications; offline map packs; SQLite GPS recording; moderation and account deletion.
+Live-provider sign-in verification; blocking and moderation; photo/video capture and uploads; real basemaps; cohosts and forum threads; notifications; offline map packs; SQLite GPS recording; account deletion; Redis-backed multi-server chat delivery.
 
-The UI does not pretend these integrations are live. Profile gear and badges are read-only samples. Offline-capable browser assets are not the same as an offline map download. Read `docs/NEXT_STEPS.md` for the next engineering milestones.
+Profile and gear editing, outing creation/cancellation, configurable OIDC authentication, private invitations, GPX import, immutable route versions, and persisted outing conversations are implemented. PostgreSQL is required for invitations, GPX import, and conversations; two real users also require a configured OIDC provider. See [authentication setup](docs/AUTHENTICATION.md) and [feature validation](docs/FEATURE_VALIDATION.md).
+
+Badges and initial activity totals are samples. Offline-capable browser assets are not offline map downloads. Read `docs/NEXT_STEPS.md` for remaining milestones. Production startup remains disabled.

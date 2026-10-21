@@ -1,6 +1,47 @@
 # Verification report — first milestone
 
-## Latest verification — 2026-10-11
+## Outing cohosts — 2026-10-21
+
+Implementation commit: `856639e`, branch `feature/trektribe-multiuser`.
+
+- Added migration 009 and organizer-controlled cohost assignment/revocation. Accepted cohosts can approve applicants; invitations, cancellation and role management remain organizer-only. Leaving deletes the role with membership.
+- Local typechecking, all 19 unit/HTTP tests, API compilation and web export passed.
+- Both jobs passed in [cohost validation CI](https://github.com/Rohitrb45/Trektribe/actions/runs/39607410505): real PostgreSQL/PostGIS integration tests, unit/HTTP tests, builds and Android/iOS bundle exports.
+- Database tests cover persistence, pending-member promotion rejection, restricted permissions, organizer/applicant blocking, revocation serialized with approval, and ordinary membership after rejoining.
+- Live OIDC sign-in and physical-device testing remain pending. Bundle exports are not native binary/device validation.
+
+## Report rating aggregation — 2026-10-19
+
+Implementation commit: `fb5d1a1`, branch `feature/trektribe-multiuser`.
+
+- Migration 008 adds a live report aggregate view and trail/rating index. API totals use persisted reports, with one vote per report and averages rounded to one decimal. Unrated trails display "Not rated". Legacy local demo data is recalculated without losing reports.
+- Local Node.js 22.23.3: typechecking, all 18 unit/HTTP tests, API compilation, web export, and Android/iOS Hermes bundle exports passed.
+- New database tests cover duplicate retries, concurrent writes from independent pools, conflicts, block-independent totals, and removal of reports. Both jobs in the [rating CI run](https://github.com/Rohitrb45/Trektribe/actions/runs/39281774705) passed (confirmed 2026-10-21), including the PostgreSQL checks and native bundle exports.
+- Bundle exports are not APK/IPA builds or physical-device validation. No live provider or device test was performed.
+
+## User blocking — 2026-10-19
+
+Implementation commit: `47ec06a`, branch `feature/trektribe-multiuser`.
+
+- Added migration 007, block/unblock endpoints, report-author blocking, and a profile block list. Feed, comments, likes, outing discovery, invitations and group-message history enforce bilateral blocks. Existing outing memberships remain available for leaving.
+- Typechecking, all 16 unit/HTTP tests, API compilation and web export passed locally. The sandbox initially prevented Node's user lookup; the same tests passed outside that sandbox.
+- Both jobs passed in [blocking validation CI](https://github.com/Rohitrb45/Trektribe/actions/runs/39274490267): real PostgreSQL/PostGIS integration tests, unit/HTTP tests, typechecking, API/web builds, and Android/iOS bundle exports.
+- The new integration scenario covers bilateral visibility, invitation retry denial, blocked mutations, shared chat filtering, preserved membership, leaving, and independent unblock ownership.
+- Already loaded content in other sessions requires refresh/reopening. No live provider or physical-device testing was performed. Production startup remains disabled.
+
+## Resumed development — 2026-10-19
+
+Implementation commit: `9ba060c`, branch `feature/trektribe-multiuser`.
+
+- Completed the GPX file-picker interface and persisted outing chat (migration 006), with transactional message/outbox writes, acknowledgments after commit, reconnect history, and accepted-member authorization.
+- Typechecking, API compilation, and web export passed locally with Node.js 22.23.3.
+- The initial local suite passed 15/16 tests; the HTTP server hit its 30-second cold-start deadline without output. Running that test alone passed in about nine seconds. The timeout was not relaxed.
+- Database/socket integration tests additionally cover invalid credentials, forged sender fields, conflicting retries, message persistence, reconnect backfill, and membership removal.
+- Both jobs passed in the [implementation validation run](https://github.com/Rohitrb45/Trektribe/actions/runs/39270025566): all 16 unit/HTTP tests, typechecking, API/web builds, Android/iOS bundle exports, and the real PostgreSQL/PostGIS/socket integration suite.
+- Physical-device testing remains deferred at the user's request. Live OIDC provider redirects, native binaries, Redis multi-server delivery, maps, media, and GPS recording are not verified by these checks.
+- See [feature validation](FEATURE_VALIDATION.md) for manual checks and current chat limitations.
+
+## Previous verification — 2026-10-11
 
 Implementation commit: `4291cac`, branch `feature/trektribe-database-validation`.
 
