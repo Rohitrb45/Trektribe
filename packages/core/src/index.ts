@@ -68,7 +68,14 @@ export function applyCommand(state: State, command: Command, actor: string, now 
     s.comments.push({ id: command.id, postId: command.postId, body: command.body.trim(), userId: actor, author: s.profile.name, createdAt: now });
   } else {
     const trip = requireValue(s.trips.find(t=>t.id===command.tripId));
-    if(command.type==='cancel-trip'){
+    if(command.type==='cohost'){
+      if(trip.organizerId!==actor)throw new DomainError('FORBIDDEN','Only the organizer can manage cohosts.',403);
+      if(command.userId===trip.organizerId)throw new DomainError('INVALID_ROLE','The organizer already manages this outing.');
+      const member=requireValue(trip.members.find(m=>m.userId===command.userId));
+      if(member.status!=='accepted')throw new DomainError('INVALID_ROLE','Approve this participant before assigning a cohost.');
+      if(command.enabled&&(trip.status!=='open'||trip.startsAt<=now))throw new DomainError('TRIP_CLOSED','This outing is closed.',409);
+      member.role=command.enabled?'cohost':'member';
+    } else if(command.type==='cancel-trip'){
       if(trip.organizerId!==actor)throw new DomainError('FORBIDDEN','Only the organizer can cancel this outing.',403);
       trip.status='closed';
     } else if (command.type === 'leave') {
@@ -81,7 +88,7 @@ export function applyCommand(state: State, command: Command, actor: string, now 
       if (trip.members.filter(m=>m.status==='accepted').length>=trip.maxParticipants) throw new DomainError('TRIP_FULL','This outing is full.',409);
       trip.members.push({ userId: actor, status: 'pending' });
     } else {
-      if (trip.organizerId!==actor) throw new DomainError('FORBIDDEN','Only the organizer can approve requests.',403);
+      if (trip.organizerId!==actor&&!trip.members.some(m=>m.userId===actor&&m.status==='accepted'&&m.role==='cohost')) throw new DomainError('FORBIDDEN','Only the organizer or a cohost can approve requests.',403);
       const member=requireValue(trip.members.find(m=>m.userId===command.userId));
       if(member.status==='accepted') return s;
       if(trip.status!=='open' || trip.startsAt<=now) throw new DomainError('TRIP_CLOSED','This outing is closed.',409);

@@ -24,7 +24,7 @@ Acceptance: real routes render, signed uploads are owner-scoped, and interrupted
 
 ## 4. Complete group planning and community
 
-Progress (2026-10-19): outing creation, timezone capture, private visibility, hashed invitations, cancellation, and persisted Socket.IO conversations are implemented. Chat uses membership checks, idempotent message IDs, per-room sequences, commit-before-ack, a transactional outbox, and reconnect backfill. Cohosts, forum threads, Redis presence/fan-out, and multi-process dispatch remain pending. Physical-device testing is deferred at the user's request.
+Progress (2026-10-19): outing creation, timezone capture, private visibility, hashed invitations, cancellation, and persisted Socket.IO conversations are implemented. Chat uses membership checks, idempotent message IDs, per-room sequences, commit-before-ack, a transactional outbox, and reconnect backfill. Cohost assignment/revocation and delegated join approvals are implemented (2026-10-21); only organizers manage roles, invitations and cancellation. Forum threads, Redis presence/fan-out, and multi-process dispatch remain pending. Physical-device testing is deferred at the user's request.
 
 Add outing creation, timezones, private visibility, hashed invitations, cohosts, cancellation, and durable forum threads. Add chat room membership, per-room message sequences, persisted messages, transactional outbox, Socket.IO acknowledgments, and reconnect backfill. Redis supports presence and broadcasts; PostgreSQL remains authoritative.
 

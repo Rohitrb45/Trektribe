@@ -23,6 +23,18 @@ Socket events are `trip:send` (tripId, id, body) and `trip:sync` (tripId, after)
 The current dispatcher supports one API process. It sends only change notifications to currently accepted members; disconnected clients backfill on reconnect. Redis fan-out, presence, persistent unsent drafts, and multi-process delivery are not implemented. Unsent drafts can be lost when the app closes. Device lifecycle and live OIDC redirects remain unverified.
 
 Run `npm test` for local checks and `npm run test:db` with `TEST_DATABASE_URL` for real PostGIS/socket tests. The database suite creates and drops its own test database. See `VERIFICATION.md` for recorded results.
+## Outing cohosts
+
+For PostgreSQL, run `npm run db:migrate` to apply migration 009. Cohost controls also work in the local demo.
+
+1. As organizer, approve a participant, then select **Make cohost** beside their entry on the outing card. Pending participants cannot be promoted.
+2. As that participant, check the **You are a cohost** label and approve another pending request. Capacity and block rules still apply.
+3. Confirm cohosts cannot cancel the outing, issue invitations, appoint other cohosts or promote themselves. These remain organizer permissions.
+4. As organizer, select **Remove cohost**. Subsequent approvals by that person must fail, including requests from a stale screen.
+5. A cohost can leave normally. Rejoining creates an ordinary pending membership; it does not restore their role.
+
+With local demo identity, use an outing you organize to test assignment/removal. Testing the other person's UI requires separate authenticated accounts; the automated database suite tests those actors without an external provider. Blocking between the organizer, cohost and applicant prevents delegated approval; removing a role remains available after blocking or cancellation.
+
 ## Trail rating totals
 
 Each published report contributes one rating, including repeat visits by the same author. The average is rounded to one decimal; the report count includes all published reports. Blocking filters personal content without changing the shared average. Unrated trails return `rating: 0, reports: 0` and display **Not rated**.

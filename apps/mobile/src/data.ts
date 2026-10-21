@@ -55,6 +55,7 @@ export function dispatch(command: Command): Promise<State> {
         case 'profile': { const {type,...body}=command;await request('/me',body);break; }
         case 'create-trip': { const {type,...body}=command;await request('/group-treks',body);break; }
         case 'cancel-trip': await request(`/group-treks/${command.tripId}/cancel`,{});break;
+        case 'cohost': await request(`/group-treks/${command.tripId}/cohosts`,{userId:command.userId,enabled:command.enabled});break;
         case 'save': await request(`/me/saved-treks/${command.trekId}`,{saved:command.saved});break;
         case 'like': await request(`/posts/${command.postId}/like`,{liked:command.liked});break;
         case 'post': { const {type,...body}=command;await request('/posts',body);break; }

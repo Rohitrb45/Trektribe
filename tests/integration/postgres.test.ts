@@ -41,7 +41,7 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await db.pool.query('UPDATE users SET name=$1 WHERE id=$2', ['Preserved name', DEMO_USER]);
       await migrate();
       assert.equal((await db.pool.query('SELECT name FROM users WHERE id=$1', [DEMO_USER])).rows[0].name, 'Preserved name');
-      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 8);
+      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 9);
       const state = await db.read();
       assert.equal(state.treks.length, seed.treks.length);
       assert.deepEqual(state.treks[0].coordinates, seed.treks[0].coordinates);
@@ -109,6 +109,46 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
         await db.pool.query('DELETE FROM posts WHERE trek_id=$1',[trekId]);
         trail=(await db.read()).treks.find(t=>t.id===trekId)!;
         assert.equal(trail.reports,0);assert.equal(trail.rating,0);
+      }finally{await competitor.close();}
+    });
+
+    await t.test('cohost roles persist, respect blocks and serialize revocation with approval', async () => {
+      const helper=await db.identify({issuer:'https://cohost.example',subject:'helper'});
+      const guest=await db.identify({issuer:'https://cohost.example',subject:'guest'});
+      const tripId=randomUUID();
+      await db.execute({type:'create-trip',id:tripId,trekId:seed.treks[0].id,title:'Delegated outing',startsAt:'2099-01-01T00:00:00Z',timezone:'Asia/Kolkata',maxParticipants:3});
+      await db.execute({type:'join',tripId},helper);
+      const role={type:'cohost' as const,tripId,userId:helper,enabled:true};
+      await assert.rejects(db.execute(role));
+      await db.execute({type:'approve',tripId,userId:helper});
+      await db.execute(role);
+      await db.execute({type:'join',tripId},guest);
+      const competitor=new PostgresStore(url.toString());
+      try{
+        assert.equal((await competitor.read(helper)).trips.find(t=>t.id===tripId)!.members.find(m=>m.userId===helper)!.role,'cohost');
+        await assert.rejects(competitor.execute({...role,userId:guest},helper));
+        await assert.rejects(competitor.execute({type:'cancel-trip',tripId},helper));
+        await assert.rejects(competitor.invite(tripId,helper));
+        const blocks=new BlockRepository(db.pool);
+        await blocks.set(DEMO_USER,guest,true);
+        await assert.rejects(competitor.execute({type:'approve',tripId,userId:guest},helper));
+        await blocks.set(DEMO_USER,guest,false);
+        // Hold a role revocation uncommitted: approval must wait for the parent lock,
+        // then re-read permission rather than relying on a previously loaded role.
+        const c=await db.pool.connect();
+        let approval:Promise<unknown>|undefined;
+        try{
+          await c.query('BEGIN');await c.query('SELECT id FROM group_treks WHERE id=$1 FOR UPDATE',[tripId]);
+          await c.query("UPDATE group_trek_members SET role='member' WHERE trip_id=$1 AND user_id=$2",[tripId,helper]);
+          approval=assert.rejects(competitor.execute({type:'approve',tripId,userId:guest},helper));
+          await c.query('COMMIT');await approval;
+        }finally{await c.query('ROLLBACK');c.release();}
+        await db.execute(role);
+        await competitor.execute({type:'approve',tripId,userId:guest},helper);
+        await competitor.execute({type:'leave',tripId},helper);
+        await competitor.execute({type:'join',tripId},helper);
+        const member=(await db.read()).trips.find(t=>t.id===tripId)!.members.find(m=>m.userId===helper)!;
+        assert.equal(member.role,'member');assert.equal(member.status,'pending');
       }finally{await competitor.close();}
     });
 

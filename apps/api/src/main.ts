@@ -107,6 +107,10 @@ class ApiController {
  }
  @HttpPost('group-treks/:id/join') async join(@Req() req:any,@Param('id') id:string){const user=await actor(req);return (await store.execute({type:'join',tripId:z.uuid().parse(id)},user)).trips.find(t=>t.id===id);}
  @HttpPost('group-treks/:id/leave') async leave(@Req() req:any,@Param('id') id:string){const user=await actor(req);return (await store.execute({type:'leave',tripId:z.uuid().parse(id)},user)).trips.find(t=>t.id===id);}
+ @HttpPost('group-treks/:id/cohosts') async cohost(@Req() req:any,@Param('id') id:string,@Body() body:unknown){
+   const user=await actor(req);const data=z.object({userId:z.uuid(),enabled:z.boolean()}).strict().parse(body);
+   return (await store.execute({type:'cohost',tripId:z.uuid().parse(id),...data},user)).trips.find(t=>t.id===id);
+ }
  @HttpPost('group-treks/:id/approve') async approve(@Req() req:any,@Param('id') id:string,@Body() body:unknown){
    const user=await actor(req);const data=z.object({userId:z.uuid()}).strict().parse(body);
    return (await store.execute({type:'approve',tripId:z.uuid().parse(id),...data},user)).trips.find(t=>t.id===id);

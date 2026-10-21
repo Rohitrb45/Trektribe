@@ -108,7 +108,7 @@ export class PostgresStore implements Store {
     const treks=await db.query(`SELECT id,current_route_version_id AS "routeVersionId",owner_id AS "ownerId",(SELECT has_elevation FROM route_versions WHERE id=treks.current_route_version_id) AS "hasElevation",title,region,description,difficulty,distance_km::float AS "distanceKm", elevation_m AS "elevationM", duration,altitude_m AS "altitudeM",COALESCE(stats.rating,0)::float AS rating,COALESCE(stats.reports,0) AS reports,color,highlights,ST_AsGeoJSON(trailhead_location::geometry)::json->'coordinates' AS coordinates,ST_AsGeoJSON(route_geometry)::json->'coordinates' AS route FROM treks LEFT JOIN trail_report_ratings stats ON stats.trek_id=treks.id ORDER BY id`);
     const posts=await db.query(`SELECT p.id,p.user_id AS "userId",u.name AS author,u.profile->>'initials' AS initials,p.trek_id AS "trekId",p.content,p.rating,p.condition,to_char(p.observed_at,'YYYY-MM-DD') AS "observedAt",p.created_at AS "createdAt",COALESCE((SELECT json_agg(l.user_id) FROM post_likes l WHERE l.post_id=p.id AND NOT users_blocked($1,l.user_id)),'[]') AS "likedBy" FROM posts p JOIN users u ON u.id=p.user_id WHERE NOT users_blocked($1,p.user_id) ORDER BY p.created_at DESC,p.id DESC`,[actor]);
     const comments=await db.query(`SELECT c.id,c.post_id AS "postId",c.user_id AS "userId",u.name AS author,c.body,c.created_at AS "createdAt" FROM comments c JOIN users u ON u.id=c.user_id JOIN posts p ON p.id=c.post_id WHERE NOT users_blocked($1,c.user_id) AND NOT users_blocked($1,p.user_id) ORDER BY c.created_at,c.id`,[actor]);
-    const trips=await db.query(`SELECT g.id,g.route_version_id AS "routeVersionId",g.trek_id AS "trekId",g.title,g.organizer_id AS "organizerId",u.name AS organizer,g.starts_at AS "startsAt",g.max_participants AS "maxParticipants",g.status,g.timezone,g.visibility,COALESCE((SELECT json_agg(json_build_object('userId',m.user_id,'status',m.status)) FROM group_trek_members m WHERE m.trip_id=g.id),'[]') AS members FROM group_treks g JOIN users u ON u.id=g.organizer_id WHERE (g.visibility='public' AND NOT users_blocked($1,g.organizer_id)) OR g.organizer_id=$1 OR EXISTS(SELECT 1 FROM group_trek_members access WHERE access.trip_id=g.id AND access.user_id=$1) ORDER BY g.starts_at,g.id`,[actor]);
+    const trips=await db.query(`SELECT g.id,g.route_version_id AS "routeVersionId",g.trek_id AS "trekId",g.title,g.organizer_id AS "organizerId",u.name AS organizer,g.starts_at AS "startsAt",g.max_participants AS "maxParticipants",g.status,g.timezone,g.visibility,COALESCE((SELECT json_agg(json_build_object('userId',m.user_id,'status',m.status,'role',m.role)) FROM group_trek_members m WHERE m.trip_id=g.id),'[]') AS members FROM group_treks g JOIN users u ON u.id=g.organizer_id WHERE (g.visibility='public' AND NOT users_blocked($1,g.organizer_id)) OR g.organizer_id=$1 OR EXISTS(SELECT 1 FROM group_trek_members access WHERE access.trip_id=g.id AND access.user_id=$1) ORDER BY g.starts_at,g.id`,[actor]);
     const savedRows=await db.query('SELECT user_id,trek_id FROM saved_treks WHERE user_id=$1',[actor]);
     const profile=await db.query('SELECT profile FROM users WHERE id=$1',[actor]);
     if(!profile.rows[0])throw new Error('Database has not been seeded. Run npm run db:migrate.');
@@ -131,7 +131,14 @@ export class PostgresStore implements Store {
         const trip=(await c.query('SELECT organizer_id FROM group_treks WHERE id=$1',[command.tripId])).rows[0];
         if(trip)await interactionAllowed(c,actor,trip.organizer_id);
       }
-      if(command.type==='approve')await interactionAllowed(c,actor,command.userId);
+      if(command.type==='approve'||(command.type==='cohost'&&command.enabled)){
+        const trip=(await c.query('SELECT organizer_id FROM group_treks WHERE id=$1',[command.tripId])).rows[0];
+        const pairs=[[actor,command.userId]];
+        if(command.type==='approve'&&trip){pairs.push([trip.organizer_id,command.userId],[trip.organizer_id,actor]);}
+        // Consistent ordering also prevents deadlocks across different outings.
+        pairs.sort((a,b)=>[...a].sort().join(':').localeCompare([...b].sort().join(':')));
+        for(const [a,b] of pairs)await interactionAllowed(c,a,b);
+      }
       const before=await this.snapshot(c,actor);const next=applyCommand(before,command,actor);
       if(command.type==='profile'){
         await c.query('UPDATE users SET name=$1,profile=$2 WHERE id=$3',[next.profile.name,JSON.stringify(next.profile),actor]);
@@ -139,6 +146,8 @@ export class PostgresStore implements Store {
         const t=next.trips.find(t=>t.id===command.id)!;
         await c.query('INSERT INTO group_treks(id,trek_id,title,organizer_id,starts_at,timezone,max_participants,status,visibility,route_version_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(id) DO NOTHING',[t.id,t.trekId,t.title,actor,t.startsAt,t.timezone,t.maxParticipants,t.status,t.visibility||'public',t.routeVersionId]);
         await c.query("INSERT INTO group_trek_members(trip_id,user_id,status) VALUES($1,$2,'accepted') ON CONFLICT DO NOTHING",[t.id,actor]);
+      }else if(command.type==='cohost'){
+        await c.query('UPDATE group_trek_members SET role=$1 WHERE trip_id=$2 AND user_id=$3',[command.enabled?'cohost':'member',command.tripId,command.userId]);
       }else if(command.type==='cancel-trip'){
         await c.query("UPDATE group_treks SET status='closed' WHERE id=$1",[command.tripId]);
       }else if(command.type==='save'){
