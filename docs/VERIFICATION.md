@@ -1,12 +1,22 @@
 # Verification report — first milestone
 
+## Outing cohosts — 2026-10-21
+
+Implementation commit: `856639e`, branch `feature/trektribe-multiuser`.
+
+- Added migration 009 and organizer-controlled cohost assignment/revocation. Accepted cohosts can approve applicants; invitations, cancellation and role management remain organizer-only. Leaving deletes the role with membership.
+- Local typechecking, all 19 unit/HTTP tests, API compilation and web export passed.
+- Both jobs passed in [cohost validation CI](https://github.com/Rohitrb45/Trektribe/actions/runs/39607410505): real PostgreSQL/PostGIS integration tests, unit/HTTP tests, builds and Android/iOS bundle exports.
+- Database tests cover persistence, pending-member promotion rejection, restricted permissions, organizer/applicant blocking, revocation serialized with approval, and ordinary membership after rejoining.
+- Live OIDC sign-in and physical-device testing remain pending. Bundle exports are not native binary/device validation.
+
 ## Report rating aggregation — 2026-10-19
 
 Implementation commit: `fb5d1a1`, branch `feature/trektribe-multiuser`.
 
 - Migration 008 adds a live report aggregate view and trail/rating index. API totals use persisted reports, with one vote per report and averages rounded to one decimal. Unrated trails display "Not rated". Legacy local demo data is recalculated without losing reports.
 - Local Node.js 22.23.3: typechecking, all 18 unit/HTTP tests, API compilation, web export, and Android/iOS Hermes bundle exports passed.
-- New database tests cover duplicate retries, concurrent writes from independent pools, conflicts, block-independent totals, and removal of reports. The [rating CI run](https://github.com/Rohitrb45/Trektribe/actions/runs/39281774705) was still queued when this report was recorded; these new PostgreSQL checks are not yet verified.
+- New database tests cover duplicate retries, concurrent writes from independent pools, conflicts, block-independent totals, and removal of reports. Both jobs in the [rating CI run](https://github.com/Rohitrb45/Trektribe/actions/runs/39281774705) passed (confirmed 2026-10-21), including the PostgreSQL checks and native bundle exports.
 - Bundle exports are not APK/IPA builds or physical-device validation. No live provider or device test was performed.
 
 ## User blocking — 2026-10-19
