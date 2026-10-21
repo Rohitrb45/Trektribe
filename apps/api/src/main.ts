@@ -14,6 +14,7 @@ import { RouteRepository } from './routes';
 import { MessageRepository } from './messages';
 import { startRealtime } from './realtime';
 import { BlockRepository } from './blocks';
+import { ForumRepository, forumPage } from './forums';
 const routeSchema=z.object({gpx:z.string().min(1).max(1_000_000),title:z.string().trim().min(1).max(120),region:z.string().trim().min(1).max(120),description:z.string().max(5000),difficulty:z.enum(['Easy','Moderate','Hard'])}).strict();
 
 if(process.env.NODE_ENV==='production')throw new Error('Production startup remains disabled until all resource policies and external integrations are verified.');
@@ -32,6 +33,12 @@ function demoOnly(){if(oidc)throw new NotFoundException();}
 
 @Controller('v1')
 class ApiController {
+ private forum(){if(!(store instanceof PostgresStore))throw new HttpException('Discussions require PostgreSQL.',409);return new ForumRepository(store.pool);}
+ @Get('forum/threads') async threads(@Req() req:any,@Query() query:unknown){const user=await actor(req),q=forumPage.parse(query);return this.forum().list(user,q.cursor,q.limit);}
+ @HttpPost('forum/threads') async newThread(@Req() req:any,@Body() body:unknown){const user=await actor(req);return this.forum().create(user,body);}
+ @Get('forum/threads/:id') async thread(@Req() req:any,@Param('id') id:string,@Query() query:unknown){const user=await actor(req),q=forumPage.parse(query);return this.forum().read(z.uuid().parse(id),user,q.cursor,q.limit);}
+ @HttpPost('forum/threads/:id/replies') async reply(@Req() req:any,@Param('id') id:string,@Body() body:unknown){const user=await actor(req);return this.forum().reply(z.uuid().parse(id),user,body);}
+ @HttpPost('forum/threads/:id/closed') async closeThread(@Req() req:any,@Param('id') id:string,@Body() body:unknown){const user=await actor(req),data=z.object({closed:z.boolean()}).strict().parse(body);return this.forum().close(z.uuid().parse(id),user,data.closed);}
  @Get('me/blocks') async blocks(@Req() req:any){
    const user=await actor(req);if(!(store instanceof PostgresStore))throw new HttpException('Blocking requires PostgreSQL.',409);
    return new BlockRepository(store.pool).list(user);

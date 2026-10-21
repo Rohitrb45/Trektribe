@@ -6,6 +6,13 @@ export const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
 export const mode = authenticatedMode ? 'Connected' : apiUrl ? 'Connected demo' : 'Local demo';
 export function listBlocks(){return request<{items:{id:string;name:string}[]}>('/me/blocks');}
 export function setBlock(id:string,blocked:boolean){return request(`/me/blocks/${id}`,{blocked});}
+export type ForumThread={id:string;userId:string;author:string;title:string;body:string;closed:boolean};
+export type ForumReply={id:string;userId:string;author:string;body:string;sequence:number};
+export function forumThreads(cursor=0){return request<{items:ForumThread[];nextCursor:number|null}>(`/forum/threads?cursor=${cursor}`);}
+export function forumThread(id:string,cursor=0){return request<{thread:ForumThread;items:ForumReply[];nextCursor:number|null}>(`/forum/threads/${id}?cursor=${cursor}`);}
+export function createForumThread(data:{id:string;title:string;body:string}){return request<{id:string}>('/forum/threads',data);}
+export function replyToForum(id:string,data:{id:string;body:string}){return request(`/forum/threads/${id}/replies`,data);}
+export function closeForumThread(id:string,closed:boolean){return request(`/forum/threads/${id}/closed`,{closed});}
 export async function createInvitation(tripId:string) {
   if(!apiUrl)throw new Error('Invitations require a connected PostgreSQL API.');
   return request<{token:string;expiresAt:string}>(`/group-treks/${tripId}/invitations`,{});

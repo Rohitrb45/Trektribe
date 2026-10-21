@@ -9,6 +9,7 @@ import { decodeCursor } from '../../apps/api/src/feed';
 import { RouteRepository } from '../../apps/api/src/routes';
 import { MessageRepository } from '../../apps/api/src/messages';
 import { BlockRepository } from '../../apps/api/src/blocks';
+import { ForumRepository } from '../../apps/api/src/forums';
 import { startRealtime } from '../../apps/api/src/realtime';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
@@ -41,7 +42,7 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await db.pool.query('UPDATE users SET name=$1 WHERE id=$2', ['Preserved name', DEMO_USER]);
       await migrate();
       assert.equal((await db.pool.query('SELECT name FROM users WHERE id=$1', [DEMO_USER])).rows[0].name, 'Preserved name');
-      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 9);
+      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 10);
       const state = await db.read();
       assert.equal(state.treks.length, seed.treks.length);
       assert.deepEqual(state.treks[0].coordinates, seed.treks[0].coordinates);
@@ -150,6 +151,41 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
         const member=(await db.read()).trips.find(t=>t.id===tripId)!.members.find(m=>m.userId===helper)!;
         assert.equal(member.role,'member');assert.equal(member.status,'pending');
       }finally{await competitor.close();}
+    });
+
+    await t.test('forums persist, page visible content, enforce ownership and survive duplicate retries', async () => {
+      const a=await db.identify({issuer:'https://forum.example',subject:'a'}),b=await db.identify({issuer:'https://forum.example',subject:'b'});
+      const forums=new ForumRepository(db.pool),blocks=new BlockRepository(db.pool);
+      const thread={id:randomUUID(),title:'Trail advice',body:'What should we pack?'};
+      await Promise.all([forums.create(a,thread),forums.create(a,thread)]);
+      await assert.rejects(forums.create(b,thread));
+      await assert.rejects(forums.create(a,{...thread,body:'Changed'}));
+      const second={id:randomUUID(),title:'Other thread',body:'Another discussion'};
+      await forums.create(b,second);
+      const firstPage=await forums.list(a,0,1);
+      assert.equal(firstPage.items[0].id,second.id);
+      assert.equal((await forums.list(a,firstPage.nextCursor!,1)).items[0].id,thread.id);
+      const reply={id:randomUUID(),body:'Bring water'};
+      await Promise.all([forums.reply(thread.id,b,reply),forums.reply(thread.id,b,reply)]);
+      await forums.reply(thread.id,a,{id:randomUUID(),body:'Thanks'});
+      await assert.rejects(forums.reply(second.id,b,reply));
+      const page=await forums.read(thread.id,a,0,1);
+      assert.equal(page.items[0].body,'Bring water');
+      assert.equal((await forums.read(thread.id,a,page.nextCursor!,1)).items[0].body,'Thanks');
+      await assert.rejects(forums.close(thread.id,b,true));
+      await forums.close(thread.id,a,true);
+      await forums.reply(thread.id,b,reply); // An acknowledged retry remains valid after closing.
+      await assert.rejects(forums.reply(thread.id,b,{id:randomUUID(),body:'Late'}));
+      await forums.close(thread.id,a,false);
+      await blocks.set(a,b,true);
+      assert.equal((await forums.list(a,0,1)).items[0].id,thread.id);
+      await assert.rejects(forums.read(thread.id,b));
+      await assert.rejects(forums.reply(thread.id,b,reply));
+      assert.deepEqual((await forums.read(thread.id,a,0,1)).items.map(r=>r.body),['Thanks']);
+      await blocks.set(a,b,false);
+      const reconnected=new PostgresStore(url.toString());
+      try{assert.equal((await new ForumRepository(reconnected.pool).read(thread.id,b)).items.length,2);}
+      finally{await reconnected.close();}
     });
 
     await t.test('verified identities are isolated and concurrent first login is idempotent', async () => {

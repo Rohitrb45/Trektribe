@@ -23,6 +23,17 @@ Socket events are `trip:send` (tripId, id, body) and `trip:sync` (tripId, after)
 The current dispatcher supports one API process. It sends only change notifications to currently accepted members; disconnected clients backfill on reconnect. Redis fan-out, presence, persistent unsent drafts, and multi-process delivery are not implemented. Unsent drafts can be lost when the app closes. Device lifecycle and live OIDC redirects remain unverified.
 
 Run `npm test` for local checks and `npm run test:db` with `TEST_DATABASE_URL` for real PostGIS/socket tests. The database suite creates and drops its own test database. See `VERIFICATION.md` for recorded results.
+## Community discussions (PostgreSQL API)
+
+Apply migration 010 with `npm run db:migrate`, connect the app to the API, and open **Community → Community discussions**.
+
+1. Publish a title and opening message. Close/reopen the screen or restart the API; the discussion must remain.
+2. Open it, send a reply, and use **Refresh discussion** to reload. Use **More discussions/replies** when a page contains more than 20 items.
+3. As the thread author, close the discussion. New replies must fail, while existing replies remain readable. Reopen it to allow replies again. Other accounts cannot close or reopen your discussion.
+4. Block another participant using the existing report-author control. Refresh discussions: their threads and replies disappear. A blocked user cannot reply to your thread, even by retrying an earlier submission.
+
+Discussion titles are limited to 120 characters, opening messages to 5,000, and replies to 2,000. Retrying the same request ID and content creates only one record. Changing content while reusing an ID is rejected. Threads are newest-first; replies are oldest-first. The app supports manual refresh rather than realtime forum notifications. Drafts are kept only while the screen is open. Editing, deletion and moderator tools remain pending. Local-only mode does not show discussions; a connected JSON API returns an explanatory PostgreSQL requirement error.
+
 ## Outing cohosts
 
 For PostgreSQL, run `npm run db:migrate` to apply migration 009. Cohost controls also work in the local demo.
