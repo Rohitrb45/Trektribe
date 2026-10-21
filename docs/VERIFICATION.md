@@ -1,5 +1,15 @@
 # Verification report — first milestone
 
+## Chat across API instances — 2026-10-21
+
+Implementation commit: `87e5b6b`, branch `feature/trektribe-multiuser`.
+
+- Added Redis 6.3 client support for bounded, best-effort conversation-change notifications across API instances. PostgreSQL continues to store messages and coordinate outbox claims. Each receiving instance revalidates authentication and membership locally.
+- Added a database coordination lock to reject mixed local/Redis modes and multiple local dispatchers. Redis publication failures roll back outbox delivery markers for retry; Redis startup failure does not silently downgrade to local mode.
+- Local typechecking, all 21 unit/HTTP tests and API compilation passed. Both jobs passed in [Redis chat CI](https://github.com/Rohitrb45/Trektribe/actions/runs/39620637216), including PostgreSQL/Redis integration tests, web builds, and Android/iOS bundle exports.
+- The new integration scenario runs two HTTP/Socket.IO server instances with independent PostgreSQL pools. It verifies remote notifications, nonmember filtering, mixed-mode rejection, history access while Redis publishing is denied, successful retry after restoring publication, membership removal and continued operation after stopping one server. Publication failure is injected through a temporary Redis ACL user, not by shutting down the Redis service.
+- Presence, physical-device behavior, live OIDC, load-balancer configuration and Redis cluster testing remain pending. Notifications may be missed or duplicated; five-second sync and reconnect backfill remain authoritative. Production startup is still disabled.
+
 ## Forum editing and moderation — 2026-10-21
 
 Implementation commit: `faa3b67`, branch `feature/trektribe-multiuser`.
