@@ -2,6 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { threadInput,replyInput,forumPage } from '../apps/api/src/forums';
+import { editThread,editReply,removeInput,reportInput,decisionInput } from '../apps/api/src/forum-management';
+
+test('forum management rejects forged roles, stale-version omissions and empty reasons',()=>{
+ assert.equal(editThread.safeParse({title:'Title',body:'Text'}).success,false);
+ assert.equal(editReply.safeParse({revision:1,body:'Text',userId:randomUUID()}).success,false);
+ assert.equal(removeInput.safeParse({revision:0}).success,false);
+ assert.equal(reportInput.safeParse({reason:' '}).success,false);
+ assert.equal(decisionInput.safeParse({action:'remove',reason:'Spam',moderator:true}).success,false);
+ assert.equal(decisionInput.safeParse({action:'restore',reason:'Changed mind'}).success,false);
+});
 
 test('forum inputs reject forged authors, empty text and invalid pagination',()=>{
  const data={id:randomUUID(),title:' Advice ',body:' Trail tips '};

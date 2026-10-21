@@ -6,8 +6,13 @@ export const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
 export const mode = authenticatedMode ? 'Connected' : apiUrl ? 'Connected demo' : 'Local demo';
 export function listBlocks(){return request<{items:{id:string;name:string}[]}>('/me/blocks');}
 export function setBlock(id:string,blocked:boolean){return request(`/me/blocks/${id}`,{blocked});}
-export type ForumThread={id:string;userId:string;author:string;title:string;body:string;closed:boolean};
-export type ForumReply={id:string;userId:string;author:string;body:string;sequence:number};
+export type ForumThread={id:string;userId:string;author:string;title:string;body:string;closed:boolean;revision:number};
+export type ForumReply={id:string;userId:string;author:string;body:string;sequence:number;revision:number};
+export type ForumReport={id:number;reason:string;title:string;body:string;reportedTitle:string;reportedBody:string;removed:boolean};
+export function forumCapabilities(){return request<{moderator:boolean}>('/forum/capabilities');}
+export function changeForum(kind:'threads'|'replies',id:string,action:'edit'|'remove'|'report',data:unknown){return request(`/forum/${kind}/${id}/${action}`,data);}
+export function forumQueue(cursor=0){return request<{items:ForumReport[];nextCursor:number|null}>(`/forum/moderation?cursor=${cursor}`);}
+export function decideForum(id:number,action:'dismiss'|'remove',reason:string){return request(`/forum/moderation/${id}`,{action,reason});}
 export function forumThreads(cursor=0){return request<{items:ForumThread[];nextCursor:number|null}>(`/forum/threads?cursor=${cursor}`);}
 export function forumThread(id:string,cursor=0){return request<{thread:ForumThread;items:ForumReply[];nextCursor:number|null}>(`/forum/threads/${id}?cursor=${cursor}`);}
 export function createForumThread(data:{id:string;title:string;body:string}){return request<{id:string}>('/forum/threads',data);}

@@ -25,6 +25,20 @@ The current dispatcher supports one API process. It sends only change notificati
 Run `npm test` for local checks and `npm run test:db` with `TEST_DATABASE_URL` for real PostGIS/socket tests. The database suite creates and drops its own test database. See `VERIFICATION.md` for recorded results.
 ## Community discussions (PostgreSQL API)
 
+### Editing, deletion and moderation
+
+Apply migration 011 with `npm run db:migrate`. On your own thread or reply, use **Edit**, then **Save changes**. Editing uses a revision check: if another session saves first, refresh before retrying. Replies cannot be edited in closed discussions. Use **Delete → Confirm deletion** to hide your content; deleting a discussion also hides its replies. Retained database records and report snapshots are available for moderation review; deletion is not permanent erasure and cannot be undone through the app.
+
+Use **Report content** and provide a reason. Duplicate submissions by the same person create only one open report per target. A new report can be filed after the previous one is resolved. Blocked or removed content cannot be reported through these endpoints.
+
+Moderator access is granted by a database administrator, never by a profile field or client request. After obtaining the intended account's UUID from `/v1/me`, an administrator can run `INSERT INTO forum_moderators(user_id) VALUES ('<account-uuid>') ON CONFLICT DO NOTHING;`. Revoke access with `DELETE FROM forum_moderators WHERE user_id='<account-uuid>';`. No moderator is assigned automatically by migrations or demo seeding. Use distinct authenticated accounts for multi-user manual validation.
+
+Reopen Community discussions after granting access. **Moderation reports** shows reported snapshots alongside current content. Enter a decision reason, then dismiss the report or remove the reported content. Decisions are recorded in `forum_moderation_actions`. Ordinary users cannot access the queue or submit decisions, even by calling the API. Revocation is checked on every queue/action request. Removed content cannot be restored by editing, reopening or retrying its original creation request.
+
+Validation: try modifying another person's reply, save conflicting edits from two sessions, report content then edit it, remove it as moderator, and verify it disappears after refresh. Existing screens must be refreshed to discard already loaded content. Moderator tools deliberately have access to reported content regardless of personal blocks. Bulk actions, appeals, restoration, notifications and permanent-erasure workflows remain pending.
+
+### Creating and browsing
+
 Apply migration 010 with `npm run db:migrate`, connect the app to the API, and open **Community → Community discussions**.
 
 1. Publish a title and opening message. Close/reopen the screen or restart the API; the discussion must remain.
@@ -32,7 +46,7 @@ Apply migration 010 with `npm run db:migrate`, connect the app to the API, and o
 3. As the thread author, close the discussion. New replies must fail, while existing replies remain readable. Reopen it to allow replies again. Other accounts cannot close or reopen your discussion.
 4. Block another participant using the existing report-author control. Refresh discussions: their threads and replies disappear. A blocked user cannot reply to your thread, even by retrying an earlier submission.
 
-Discussion titles are limited to 120 characters, opening messages to 5,000, and replies to 2,000. Retrying the same request ID and content creates only one record. Changing content while reusing an ID is rejected. Threads are newest-first; replies are oldest-first. The app supports manual refresh rather than realtime forum notifications. Drafts are kept only while the screen is open. Editing, deletion and moderator tools remain pending. Local-only mode does not show discussions; a connected JSON API returns an explanatory PostgreSQL requirement error.
+Discussion titles are limited to 120 characters, opening messages to 5,000, and replies to 2,000. Retrying the same creation request ID and unchanged content creates only one record; retries after editing or removal may be rejected and never restore content. Threads are newest-first; replies are oldest-first. The app supports manual refresh rather than realtime forum notifications. Drafts are kept only while the screen is open. Local-only mode does not show discussions; a connected JSON API returns an explanatory PostgreSQL requirement error.
 
 ## Outing cohosts
 

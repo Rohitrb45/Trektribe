@@ -15,6 +15,7 @@ import { MessageRepository } from './messages';
 import { startRealtime } from './realtime';
 import { BlockRepository } from './blocks';
 import { ForumRepository, forumPage } from './forums';
+import { ForumManagement } from './forum-management';
 const routeSchema=z.object({gpx:z.string().min(1).max(1_000_000),title:z.string().trim().min(1).max(120),region:z.string().trim().min(1).max(120),description:z.string().max(5000),difficulty:z.enum(['Easy','Moderate','Hard'])}).strict();
 
 if(process.env.NODE_ENV==='production')throw new Error('Production startup remains disabled until all resource policies and external integrations are verified.');
@@ -33,6 +34,13 @@ function demoOnly(){if(oidc)throw new NotFoundException();}
 
 @Controller('v1')
 class ApiController {
+ private forumManagement(){if(!(store instanceof PostgresStore))throw new HttpException('Discussions require PostgreSQL.',409);return new ForumManagement(store.pool);}
+ @Get('forum/capabilities') async forumCapabilities(@Req() req:any){const user=await actor(req);return {moderator:await this.forumManagement().isModerator(user)};}
+ @HttpPost('forum/:kind/:id/edit') async editForum(@Req() req:any,@Param('kind') kind:string,@Param('id') id:string,@Body() body:unknown){const user=await actor(req);return this.forumManagement().change(z.enum(['threads','replies']).parse(kind),z.uuid().parse(id),user,body);}
+ @HttpPost('forum/:kind/:id/remove') async removeForum(@Req() req:any,@Param('kind') kind:string,@Param('id') id:string,@Body() body:unknown){const user=await actor(req);return this.forumManagement().change(z.enum(['threads','replies']).parse(kind),z.uuid().parse(id),user,body,true);}
+ @HttpPost('forum/:kind/:id/report') async reportForum(@Req() req:any,@Param('kind') kind:string,@Param('id') id:string,@Body() body:unknown){const user=await actor(req);return this.forumManagement().report(z.enum(['threads','replies']).parse(kind),z.uuid().parse(id),user,body);}
+ @Get('forum/moderation') async forumQueue(@Req() req:any,@Query() query:unknown){const user=await actor(req),q=forumPage.parse(query);return this.forumManagement().queue(user,q.cursor);}
+ @HttpPost('forum/moderation/:id') async moderateForum(@Req() req:any,@Param('id') id:string,@Body() body:unknown){const user=await actor(req);return this.forumManagement().decide(z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER).parse(id),user,body);}
  private forum(){if(!(store instanceof PostgresStore))throw new HttpException('Discussions require PostgreSQL.',409);return new ForumRepository(store.pool);}
  @Get('forum/threads') async threads(@Req() req:any,@Query() query:unknown){const user=await actor(req),q=forumPage.parse(query);return this.forum().list(user,q.cursor,q.limit);}
  @HttpPost('forum/threads') async newThread(@Req() req:any,@Body() body:unknown){const user=await actor(req);return this.forum().create(user,body);}

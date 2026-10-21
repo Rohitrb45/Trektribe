@@ -10,6 +10,7 @@ import { RouteRepository } from '../../apps/api/src/routes';
 import { MessageRepository } from '../../apps/api/src/messages';
 import { BlockRepository } from '../../apps/api/src/blocks';
 import { ForumRepository } from '../../apps/api/src/forums';
+import { ForumManagement } from '../../apps/api/src/forum-management';
 import { startRealtime } from '../../apps/api/src/realtime';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
@@ -42,7 +43,7 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await db.pool.query('UPDATE users SET name=$1 WHERE id=$2', ['Preserved name', DEMO_USER]);
       await migrate();
       assert.equal((await db.pool.query('SELECT name FROM users WHERE id=$1', [DEMO_USER])).rows[0].name, 'Preserved name');
-      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 10);
+      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 11);
       const state = await db.read();
       assert.equal(state.treks.length, seed.treks.length);
       assert.deepEqual(state.treks[0].coordinates, seed.treks[0].coordinates);
@@ -186,6 +187,63 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       const reconnected=new PostgresStore(url.toString());
       try{assert.equal((await new ForumRepository(reconnected.pool).read(thread.id,b)).items.length,2);}
       finally{await reconnected.close();}
+    });
+
+    await t.test('forum edits, deletions and moderation enforce ownership and retain audit evidence', async () => {
+      const author=await db.identify({issuer:'https://manage.example',subject:'author'});
+      const reader=await db.identify({issuer:'https://manage.example',subject:'reader'});
+      const moderator=await db.identify({issuer:'https://manage.example',subject:'moderator'});
+      const forum=new ForumRepository(db.pool),management=new ForumManagement(db.pool);
+      const thread={id:randomUUID(),title:'Original title',body:'Original body'};
+      await forum.create(author,thread);
+      await assert.rejects(management.change('threads',thread.id,reader,{revision:1,title:'Hijack',body:'Hijack'}));
+      const results=await Promise.allSettled([management.change('threads',thread.id,author,{revision:1,title:'Edited',body:'First edit'}),management.change('threads',thread.id,author,{revision:1,title:'Edited',body:'Other edit'})]);
+      assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+      assert.equal((await forum.read(thread.id,reader)).thread.revision,2);
+      const reply={id:randomUUID(),body:'Reply content'};await forum.reply(thread.id,reader,reply);
+      await assert.rejects(management.change('replies',reply.id,author,{revision:1},true));
+      await management.change('replies',reply.id,reader,{revision:1,body:'Edited reply'});
+      await assert.rejects(management.change('replies',reply.id,reader,{revision:1},true));
+      await management.change('replies',reply.id,reader,{revision:2},true);
+      await management.change('replies',reply.id,reader,{revision:2},true);
+      assert.equal((await forum.read(thread.id,author)).items.length,0);
+      await assert.rejects(forum.reply(thread.id,reader,reply));
+      await Promise.all([management.report('threads',thread.id,reader,{reason:'Review this'}),management.report('threads',thread.id,reader,{reason:'Review this'})]);
+      await assert.rejects(management.queue(reader));
+      await db.pool.query('INSERT INTO forum_moderators(user_id) VALUES($1)',[moderator]);
+      assert.equal(await management.isModerator(moderator),true);
+      const reports=await management.queue(moderator);
+      assert.equal(reports.items.length,1);
+      const reportId=reports.items[0].id,reportedBody=reports.items[0].reportedBody;
+      await management.change('threads',thread.id,author,{revision:2,title:'Changed after report',body:'New content'});
+      assert.equal((await management.queue(moderator)).items[0].reportedBody,reportedBody);
+      const decision={action:'remove',reason:'Violates community rules'};
+      await assert.rejects(management.decide(reportId,reader,decision));
+      await management.decide(reportId,moderator,decision);await management.decide(reportId,moderator,decision);
+      await assert.rejects(management.decide(reportId,moderator,{...decision,action:'dismiss'}));
+      assert.equal((await management.queue(moderator)).items.length,0);
+      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM forum_moderation_actions WHERE report_id=$1',[reportId])).rows[0].n,1);
+      await assert.rejects(forum.read(thread.id,author));
+      await assert.rejects(forum.close(thread.id,author,false));
+      await assert.rejects(management.change('threads',thread.id,author,{revision:4,title:'Restore',body:'Restore'}));
+      await assert.rejects(forum.create(author,thread));
+      const another={id:randomUUID(),title:'Reply review',body:'Keep this discussion'};await forum.create(author,another);
+      const flagged={id:randomUUID(),body:'Flagged reply'};await forum.reply(another.id,reader,flagged);
+      await management.report('replies',flagged.id,author,{reason:'Please review'});
+      const dismissed=(await management.queue(moderator)).items[0].id;
+      await management.decide(dismissed,moderator,{action:'dismiss',reason:'No violation'});
+      assert.equal((await forum.read(another.id,author)).items.length,1);
+      await management.report('replies',flagged.id,author,{reason:'Additional concern'});
+      const reopened=(await management.queue(moderator)).items[0];
+      assert.notEqual(reopened.id,dismissed);assert.equal(reopened.reportedBody,flagged.body);
+      await management.decide(reopened.id,moderator,{action:'remove',reason:'Confirmed violation'});
+      assert.equal((await forum.read(another.id,author)).items.length,0);
+      await db.pool.query('DELETE FROM forum_moderators WHERE user_id=$1',[moderator]);
+      await assert.rejects(management.queue(moderator));
+      const own={id:randomUUID(),title:'Delete me',body:'Own content'};await forum.create(author,own);
+      await management.change('threads',own.id,author,{revision:1},true);
+      assert.ok(!(await forum.list(author)).items.some(t=>t.id===own.id));
+      await assert.rejects(forum.reply(own.id,reader,{id:randomUUID(),body:'Hidden'}));
     });
 
     await t.test('verified identities are isolated and concurrent first login is idempotent', async () => {
