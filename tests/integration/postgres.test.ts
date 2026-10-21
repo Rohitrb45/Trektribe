@@ -15,6 +15,7 @@ import { startRealtime } from '../../apps/api/src/realtime';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { io } from 'socket.io-client';
+import { createClient } from 'redis';
 import { createSeed, DEMO_USER, DomainError } from '../../packages/core/src/index';
 
 const exec = promisify(execFile);
@@ -329,7 +330,7 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await db.execute({type:'create-trip',id:tripId,trekId:seed.treks[0].id,title:'Chat outing',startsAt:new Date(Date.now()+86400000).toISOString(),timezone:'UTC',maxParticipants:4});
       await db.execute({type:'join',tripId},guest);await db.execute({type:'approve',tripId,userId:guest});
       const http=createServer();
-      const stop=startRealtime(http,db.pool,async token=>{if(token!=='Bearer test-guest')throw new Error('Invalid token');return guest;},[]);
+      const stop=await startRealtime(http,db.pool,async token=>{if(token!=='Bearer test-guest')throw new Error('Invalid token');return guest;},[]);
       http.listen(0,'127.0.0.1');await once(http,'listening');
       const port=(http.address() as {port:number}).port;
       const socket=io(`http://127.0.0.1:${port}`,{auth:{token:'test-guest'},autoConnect:false,reconnection:false});
@@ -359,6 +360,55 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
         await assert.rejects(repository.send(tripId,guest,randomUUID(),'No access'));
         assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM trip_outbox WHERE trip_id=$1',[tripId])).rows[0].n,2);
       }finally{socket.disconnect();await stop();}
+    });
+
+    await t.test('two API instances fan out notifications and retry Redis publication failures', async () => {
+      assert.ok(process.env.TEST_REDIS_URL,'Set TEST_REDIS_URL to a disposable Redis server with ACL administration enabled.');
+      const adminRedis=createClient({url:process.env.TEST_REDIS_URL,socket:{reconnectStrategy:false}});
+      adminRedis.on('error',()=>{});await adminRedis.connect();
+      const username=`test_${randomUUID().replaceAll('-','')}`,password=randomUUID(),channel=`test:chat:${randomUUID()}`;
+      const redisUrl=new URL(process.env.TEST_REDIS_URL);redisUrl.username=username;redisUrl.password=password;
+      const guest=await db.identify({issuer:'https://fanout.example',subject:'guest'}),outsider=await db.identify({issuer:'https://fanout.example',subject:'outsider'});
+      const tripId=randomUUID();
+      await db.execute({type:'create-trip',id:tripId,trekId:seed.treks[0].id,title:'Distributed chat',startsAt:'2099-01-01T00:00:00Z',timezone:'UTC',maxParticipants:4});
+      await db.execute({type:'join',tripId},guest);await db.execute({type:'approve',tripId,userId:guest});
+      const poolB=new PostgresStore(url.toString()),httpA=createServer(),httpB=createServer();
+      const clients:ReturnType<typeof io>[]=[];let stopA:(()=>Promise<void>)|undefined,stopB:(()=>Promise<void>)|undefined;
+      const authenticate=async(token:string)=>{if(token==='Bearer host')return DEMO_USER;if(token==='Bearer guest')return guest;if(token==='Bearer outsider')return outsider;throw new Error('Invalid token');};
+      async function connect(http:ReturnType<typeof createServer>,token:string){const client=io(`http://127.0.0.1:${(http.address() as {port:number}).port}`,{auth:{token},autoConnect:false,reconnection:false});clients.push(client);const ready=once(client,'connect',{signal:AbortSignal.timeout(5000)});client.connect();await ready;return client;}
+      async function until(check:()=>Promise<boolean>){const end=Date.now()+12000;while(!await check()){assert.ok(Date.now()<end,'Timed out awaiting outbox state');await new Promise(r=>setTimeout(r,100));}}
+      try{
+        await adminRedis.sendCommand(['ACL','SETUSER',username,'reset','on',`>${password}`,'+@connection','+publish','+subscribe','+unsubscribe',`&${channel}`]);
+        const options={redisUrl:redisUrl.toString(),channel};
+        stopA=await startRealtime(httpA,db.pool,authenticate,[],options);stopB=await startRealtime(httpB,poolB.pool,authenticate,[],options);
+        await assert.rejects(startRealtime(createServer(),poolB.pool,authenticate,[])); // Cannot mix local and Redis dispatchers.
+        httpA.listen(0,'127.0.0.1');httpB.listen(0,'127.0.0.1');await Promise.all([once(httpA,'listening'),once(httpB,'listening')]);
+        const host=await connect(httpA,'host'),remote=await connect(httpB,'guest'),stranger=await connect(httpB,'outsider');
+        let remoteChanges=0,strangerChanges=0;
+        remote.on('trip:changed',event=>{if(event.tripId===tripId)remoteChanges++;});stranger.on('trip:changed',event=>{if(event.tripId===tripId)strangerChanges++;});
+        const firstId=randomUUID();assert.equal((await host.timeout(5000).emitWithAck('trip:send',{tripId,id:firstId,body:'Across servers'})).ok,true);
+        await until(async()=>remoteChanges>0);
+        assert.equal(strangerChanges,0);
+        assert.equal((await remote.timeout(5000).emitWithAck('trip:sync',{tripId,after:0})).items[0].body,'Across servers');
+        await until(async()=>!!(await db.pool.query('SELECT delivered_at FROM trip_outbox WHERE message_id=$1',[firstId])).rows[0].delivered_at);
+        await adminRedis.sendCommand(['ACL','SETUSER',username,'-publish']);
+        const secondId=randomUUID();const ack=await host.timeout(5000).emitWithAck('trip:send',{tripId,id:secondId,body:'Saved during Redis failure'});
+        assert.equal(ack.ok,true);
+        await new Promise(r=>setTimeout(r,2200));
+        assert.equal((await db.pool.query('SELECT delivered_at FROM trip_outbox WHERE message_id=$1',[secondId])).rows[0].delivered_at,null);
+        assert.equal((await remote.timeout(5000).emitWithAck('trip:sync',{tripId,after:1})).items[0].body,'Saved during Redis failure');
+        const before=remoteChanges;await adminRedis.sendCommand(['ACL','SETUSER',username,'+publish']);
+        await until(async()=>remoteChanges>before);
+        await until(async()=>!!(await db.pool.query('SELECT delivered_at FROM trip_outbox WHERE message_id=$1',[secondId])).rows[0].delivered_at);
+        await db.execute({type:'leave',tripId},guest);
+        assert.equal((await remote.timeout(5000).emitWithAck('trip:sync',{tripId,after:0})).ok,false);
+        await stopB();stopB=undefined;
+        await host.timeout(5000).emitWithAck('trip:send',{tripId,id:randomUUID(),body:'Other server stopped'});
+        assert.equal((await host.timeout(5000).emitWithAck('trip:sync',{tripId,after:2})).items[0].body,'Other server stopped');
+      }finally{
+        for(const client of clients)client.disconnect();await stopB?.();await stopA?.();await poolB.close();
+        await adminRedis.sendCommand(['ACL','DELUSER',username]);adminRedis.destroy();
+      }
     });
 
     await t.test('concurrent duplicate writes persist once and invalid mutations roll back', async () => {

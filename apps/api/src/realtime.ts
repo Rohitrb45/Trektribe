@@ -4,8 +4,22 @@ import { Pool } from 'pg';
 import { z } from 'zod';
 import { DomainError } from '../../../packages/core/src/index';
 import { MessageRepository } from './messages';
+import { redisFanout } from './chat-fanout';
 
-export function startRealtime(http:HttpServer,pool:Pool,authenticate:(authorization:string)=>Promise<string>,origins:string[]){
+export async function startRealtime(http:HttpServer,pool:Pool,authenticate:(authorization:string)=>Promise<string>,origins:string[],options:{redisUrl?:string;channel?:string}={}){
+  // Shared locks permit Redis-backed instances; an exclusive lock protects local mode.
+  const lease=await pool.connect();
+  let leaseLost=false;
+  const onLeaseError=()=>{leaseLost=true;console.error('Chat coordination connection lost; restart this API instance.');};
+  lease.on('error',onLeaseError);
+  let fanout:Awaited<ReturnType<typeof redisFanout>>|undefined;
+  const notifications=new Set<string>();
+  const enqueue=(tripId:string)=>{if(notifications.size<1000)notifications.add(tripId);};
+  const lock=options.redisUrl?'pg_try_advisory_lock_shared':'pg_try_advisory_lock';
+  try{
+    if(!(await lease.query(`SELECT ${lock}(7421002) AS acquired`)).rows[0].acquired)throw new Error('Chat instances cannot mix local and Redis modes. Use Redis on all instances of a shared database.');
+    if(options.redisUrl)fanout=await redisFanout(options.redisUrl,options.channel??'trektribe:chat:v1',enqueue);
+  }catch(e){lease.removeListener('error',onLeaseError);lease.release(true);throw e;}
   const io=new Server(http,{cors:{origin:origins},maxHttpBufferSize:16384});
   const repository=new MessageRepository(pool);
   const actor=async(socket:Socket)=>{
@@ -32,7 +46,7 @@ export function startRealtime(http:HttpServer,pool:Pool,authenticate:(authorizat
       }catch{ack({ok:false,error:'Conversation unavailable. Check your session and membership.'});}
     });
   });
-  // Single-process dispatcher. Reconnect sync is authoritative even if a notification is missed.
+  // Competing instances claim different rows. Publish failures roll back for retry.
   let running:Promise<void>|null=null;
   const deliver=async()=>{
     const c=await pool.connect();
@@ -40,18 +54,31 @@ export function startRealtime(http:HttpServer,pool:Pool,authenticate:(authorizat
       await c.query('BEGIN');
       const pending=await c.query('SELECT id,trip_id FROM trip_outbox WHERE delivered_at IS NULL ORDER BY id LIMIT 50 FOR UPDATE SKIP LOCKED');
       for(const item of pending.rows){
-        for(const socket of io.sockets.sockets.values()){
-          let user:string;
-          try{user=await actor(socket);}catch{socket.disconnect(true);continue;}
-          const member=await c.query("SELECT 1 FROM group_trek_members WHERE trip_id=$1 AND user_id=$2 AND status='accepted'",[item.trip_id,user]);
-          if(member.rowCount)socket.emit('trip:changed',{tripId:item.trip_id});
-        }
+        if(fanout)await fanout.publish(item.trip_id);else enqueue(item.trip_id);
         await c.query('UPDATE trip_outbox SET delivered_at=now() WHERE id=$1',[item.id]);
       }
       await c.query('COMMIT');
     }catch(e){await c.query('ROLLBACK');console.error('Outbox delivery failed; will retry.');}finally{c.release();}
   };
-  const timer=setInterval(()=>{if(!running)running=deliver().catch(()=>console.error('Outbox connection failed; will retry.')).finally(()=>{running=null;});},1000);
+  let notifying:Promise<void>|null=null;
+  const notify=async()=>{
+    const batch=[...notifications].slice(0,50);for(const id of batch)notifications.delete(id);
+    for(const tripId of batch)for(const socket of io.sockets.sockets.values()){
+      let user:string;
+      try{user=await actor(socket);}catch{socket.disconnect(true);continue;}
+      const member=await pool.query("SELECT 1 FROM group_trek_members WHERE trip_id=$1 AND user_id=$2 AND status='accepted'",[tripId,user]);
+      if(member.rowCount&&socket.connected)socket.emit('trip:changed',{tripId});
+    }
+  };
+  const timer=setInterval(()=>{
+    if(leaseLost){io.disconnectSockets(true);return;}
+    if(!running)running=deliver().catch(()=>console.error('Outbox connection failed; will retry.')).finally(()=>{running=null;});
+    if(!notifying)notifying=notify().catch(()=>console.error('Chat notification failed; clients will resync.')).finally(()=>{notifying=null;});
+  },1000);
   timer.unref();
-  return async()=>{clearInterval(timer);await running;await new Promise<void>(resolve=>io.close(()=>resolve()));};
+  return async()=>{
+    clearInterval(timer);await fanout?.close();await Promise.all([running,notifying]);
+    await new Promise<void>(resolve=>io.close(()=>resolve()));
+    lease.removeListener('error',onLeaseError);lease.release(true);
+  };
 }

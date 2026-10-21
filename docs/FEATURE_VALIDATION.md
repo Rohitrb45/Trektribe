@@ -20,9 +20,19 @@ Apply migrations using `DATABASE_URL`, `DEMO_MODE=true`, and `npm run db:migrate
 
 Socket events are `trip:send` (tripId, id, body) and `trip:sync` (tripId, after). Authentication is checked on connection and each event. Success acknowledgments follow the database commit. Each message receives a per-outing sequence and an outbox row in the same transaction. Notifications prompt synchronization; PostgreSQL history is authoritative.
 
-The current dispatcher supports one API process. It sends only change notifications to currently accepted members; disconnected clients backfill on reconnect. Redis fan-out, presence, persistent unsent drafts, and multi-process delivery are not implemented. Unsent drafts can be lost when the app closes. Device lifecycle and live OIDC redirects remain unverified.
+The dispatcher sends only change notifications to currently accepted members; disconnected clients backfill on reconnect. Without Redis, only one dispatcher may use a database. With Redis configured consistently on all API instances, independent dispatchers claim outbox rows and publish hints to every instance, which rechecks authentication and membership locally. Presence and persistent unsent drafts remain pending. Unsent drafts can be lost when the app closes. Device lifecycle and live OIDC redirects remain unverified.
 
-Run `npm test` for local checks and `npm run test:db` with `TEST_DATABASE_URL` for real PostGIS/socket tests. The database suite creates and drops its own test database. See `VERIFICATION.md` for recorded results.
+Run `npm test` for local checks and `npm run test:db` with `TEST_DATABASE_URL` and `TEST_REDIS_URL` for real PostGIS/Redis/socket tests. Use disposable services: the database suite creates and drops its own database, and the Redis test creates/removes a temporary ACL user and isolated channel. The Redis test connection needs ACL administration privileges. See `VERIFICATION.md` for recorded results.
+
+## Chat across API instances
+
+Set `DATABASE_URL`, `REDIS_URL` (for example `redis://localhost:6379`), and the same `CHAT_REDIS_CHANNEL` on every instance serving the same app. Use a different channel per environment; Redis Pub/Sub is not isolated by database number. Backend variables must be exported into the process environment; `.env` is not loaded automatically. Redis is optional for single-instance development. Redis configuration failures stop startup rather than silently falling back to local delivery. All instances sharing a database must use the same mode; a PostgreSQL advisory lock rejects mixed modes or multiple local dispatchers.
+
+Start two APIs on different ports, connect accepted outing members to each, and send a message. Both clients should refresh. Nonmembers must receive neither history nor conversation-change hints. Stop one API; the other should continue to serve history and publish notifications. Redis carries only outing IDs, never message bodies. PostgreSQL remains authoritative for membership and replay.
+
+If Redis publishing fails, message acknowledgments still follow the PostgreSQL commit, and undelivered outbox rows retry. Successful publication means Redis accepted the hint, not that every client received it. Offline subscribers, transient notification errors, or a full bounded notification buffer may miss hints; the app's five-second sync and reconnect backfill recover history. Publication timeouts may produce duplicate hints, which only trigger synchronization. See the [Redis Pub/Sub delivery documentation](https://redis.io/docs/latest/develop/use-cases/pub-sub/nodejs/).
+
+When putting Socket.IO behind a load balancer, configure sticky sessions for its default polling transport, or deliberately configure WebSocket-only transport throughout. This implementation uses Redis for application notifications, not a shared Socket.IO transport session. Redis presence, cluster/sharded Pub/Sub, and load-balancer/device testing remain pending. A lost PostgreSQL coordination connection disables notifications on that instance and requires an API restart. Production startup remains disabled.
 ## Community discussions (PostgreSQL API)
 
 ### Editing, deletion and moderation

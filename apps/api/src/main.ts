@@ -156,7 +156,7 @@ async function bootstrap(){
    response.status(status).json({error:{code:exception instanceof DomainError?exception.code:status===400?'VALIDATION_ERROR':status===401?'UNAUTHORIZED':'REQUEST_FAILED',message,requestId}});
  }});
  app.enableShutdownHooks();
- const stopRealtime=store instanceof PostgresStore?startRealtime(app.getHttpServer(),store.pool,authorization=>actor({headers:{authorization}}),(process.env.CORS_ORIGINS||'http://localhost:8081,http://127.0.0.1:8081').split(',')):undefined;
+ const stopRealtime=store instanceof PostgresStore?await startRealtime(app.getHttpServer(),store.pool,authorization=>actor({headers:{authorization}}),(process.env.CORS_ORIGINS||'http://localhost:8081,http://127.0.0.1:8081').split(','),{redisUrl:process.env.REDIS_URL,channel:process.env.CHAT_REDIS_CHANNEL}):undefined;
  await app.listen(Number(process.env.PORT||3001),process.env.HOST||'127.0.0.1');
  console.log(`TrekTribe demo API: http://${process.env.HOST||'127.0.0.1'}:${process.env.PORT||3001}/v1/health`);
  const stop=async()=>{await stopRealtime?.();await app.close();await store.close();process.exit(0);};process.once('SIGTERM',stop);process.once('SIGINT',stop);
