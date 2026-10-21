@@ -1,5 +1,15 @@
 # Verification report — first milestone
 
+## Forum editing and moderation — 2026-10-21
+
+Implementation commit: `faa3b67`, branch `feature/trektribe-multiuser`.
+
+- Migration 011 adds revision-controlled author edits, soft deletion, reports with content snapshots, explicit moderator assignments and an audit table for decisions. Client controls include editing, deletion confirmation, reporting and moderator review.
+- Local typechecking, all 21 unit/HTTP tests, API compilation and web export passed after fixing an edit-payload type narrowing error.
+- Both jobs passed in [forum management CI](https://github.com/Rohitrb45/Trektribe/actions/runs/39611598057), including PostgreSQL/PostGIS integration tests and Android/iOS bundle exports.
+- Database tests cover concurrent edits, stale revisions, ownership, duplicate reports, preserved report evidence after editing, dismissal/removal, repeated decisions, revoked moderator access and prevention of restoring removed content through ordinary endpoints.
+- No moderator is assigned automatically. Deletion hides retained records; it is not permanent erasure. Appeals, restoration, bulk moderation and realtime notifications remain pending. Live sign-in, manual UI and physical-device validation were not performed.
+
 ## Community discussions — 2026-10-21
 
 Implementation commit: `a8abdd4`, branch `feature/trektribe-multiuser`.
