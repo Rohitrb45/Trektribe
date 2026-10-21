@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { DomainError } from '../../../packages/core/src/index';
 import { MessageRepository } from './messages';
 import { redisFanout } from './chat-fanout';
+import { LocalPresence } from './presence';
 
 export async function startRealtime(http:HttpServer,pool:Pool,authenticate:(authorization:string)=>Promise<string>,origins:string[],options:{redisUrl?:string;channel?:string}={}){
   // Shared locks permit Redis-backed instances; an exclusive lock protects local mode.
@@ -22,12 +23,45 @@ export async function startRealtime(http:HttpServer,pool:Pool,authenticate:(auth
   }catch(e){lease.removeListener('error',onLeaseError);lease.release(true);throw e;}
   const io=new Server(http,{cors:{origin:origins},maxHttpBufferSize:16384});
   const repository=new MessageRepository(pool);
+  const presence=fanout??new LocalPresence();
+  const presenceTasks=new Set<Promise<void>>();
   const actor=async(socket:Socket)=>{
     const token=z.string().min(1).max(16384).parse(socket.handshake.auth?.token);
     return authenticate(`Bearer ${token}`);
   };
   io.use((socket,next)=>{actor(socket).then(id=>{socket.data.userId=id;next();}).catch(()=>next(new Error('Authentication required.')));});
   io.on('connection',socket=>{
+    let activeRoom:{tripId:string;session:string}|undefined,task:Promise<void>|null=null;
+    const clearPresence=async()=>{const previous=activeRoom;activeRoom=undefined;if(previous)await presence.leave(previous.tripId,previous.session);};
+    const schedule=(operation:()=>Promise<void>)=>{
+      const next=(task??Promise.resolve()).then(operation).catch(()=>{});
+      task=next;presenceTasks.add(next);
+      void next.finally(()=>{presenceTasks.delete(next);if(task===next)task=null;});
+    };
+    socket.on('trip:presence',(input,ack)=>{
+      if(typeof ack!=='function')return;
+      if(task||leaseLost){ack({ok:false,error:'Presence unavailable.'});return;}
+      schedule(async()=>{
+        try{
+          const {tripId}=z.object({tripId:z.uuid()}).strict().parse(input),user=await actor(socket);
+          const member=await pool.query("SELECT 1 FROM group_trek_members WHERE trip_id=$1 AND user_id=$2 AND status='accepted'",[tripId,user]);
+          if(!member.rowCount||!socket.connected)throw new Error('Not a member');
+          if(activeRoom?.tripId!==tripId)await clearPresence();
+          activeRoom={tripId,session:`${user}:${socket.id}`};
+          const sessions=await presence.heartbeat(tripId,activeRoom.session);
+          const ids=[...new Set(sessions.map(s=>s.slice(0,36)).filter(id=>z.uuid().safeParse(id).success))];
+          const online=await pool.query(`SELECT u.id,u.name FROM group_trek_members m JOIN users u ON u.id=m.user_id
+            WHERE m.trip_id=$1 AND m.status='accepted' AND u.id=ANY($2::uuid[]) AND NOT users_blocked($3,u.id)
+            AND EXISTS(SELECT 1 FROM group_trek_members viewer WHERE viewer.trip_id=$1 AND viewer.user_id=$3 AND viewer.status='accepted') ORDER BY u.name,u.id`,[tripId,ids,user]);
+          if(!online.rows.some(p=>p.id===user))throw new Error('Membership removed');
+          if(socket.connected)ack({ok:true,online:online.rows});
+        }catch{await clearPresence().catch(()=>{});ack({ok:false,error:'Presence unavailable.'});}
+      });
+    });
+    let clearing=false;
+    const leavePresence=()=>{if(clearing)return;clearing=true;schedule(async()=>{try{await clearPresence();}finally{clearing=false;}});};
+    socket.on('trip:away',leavePresence);
+    socket.on('disconnect',leavePresence);
     socket.on('trip:send',async(input,ack)=>{
       if(typeof ack!=='function')return;
       try{
@@ -77,8 +111,9 @@ export async function startRealtime(http:HttpServer,pool:Pool,authenticate:(auth
   },1000);
   timer.unref();
   return async()=>{
-    clearInterval(timer);await fanout?.close();await Promise.all([running,notifying]);
+    clearInterval(timer);await Promise.all([running,notifying]);
     await new Promise<void>(resolve=>io.close(()=>resolve()));
+    await Promise.all([...presenceTasks]);await fanout?.close();
     lease.removeListener('error',onLeaseError);lease.release(true);
   };
 }

@@ -1,7 +1,8 @@
 import { createClient } from 'redis';
 import { z } from 'zod';
+import { presenceScript } from './presence';
 
-/** Redis carries only invalidation hints. Message bodies and replay stay in PostgreSQL. */
+/** Redis carries hints and expiring presence identifiers; message bodies stay in PostgreSQL. */
 export async function redisFanout(url:string,channel:string,receive:(tripId:string)=>void){
  const publisher=createClient({url,disableOfflineQueue:true,commandsQueueMaxLength:100,socket:{connectTimeout:5000}});
  const subscriber=publisher.duplicate();
@@ -18,6 +19,14 @@ export async function redisFanout(url:string,channel:string,receive:(tripId:stri
    await bounded(subscriber.subscribe(channel,message=>{const id=z.uuid().safeParse(message);if(id.success)receive(id.data);}),3000);
  }catch{destroy();throw new Error('Could not initialize chat Redis. Check REDIS_URL and connectivity.');}
  return {
+   async heartbeat(tripId:string,session:string):Promise<string[]>{
+     if(!publisher.isReady)throw new Error('Presence unavailable.');
+     return await bounded(publisher.eval(presenceScript,{keys:[`${channel}:presence:${tripId}`],arguments:[session]}),3000) as string[];
+   },
+   async leave(tripId:string,session:string){
+     if(!publisher.isReady)throw new Error('Presence unavailable.');
+     await bounded(publisher.zRem(`${channel}:presence:${tripId}`,session),3000);
+   },
    async publish(tripId:string){
      if(!publisher.isReady||!subscriber.isReady)throw new Error('Redis unavailable.');
      const count=await bounded(publisher.publish(channel,tripId),3000);

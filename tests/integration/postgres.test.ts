@@ -378,12 +378,33 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       async function connect(http:ReturnType<typeof createServer>,token:string){const client=io(`http://127.0.0.1:${(http.address() as {port:number}).port}`,{auth:{token},autoConnect:false,reconnection:false});clients.push(client);const ready=once(client,'connect',{signal:AbortSignal.timeout(5000)});client.connect();await ready;return client;}
       async function until(check:()=>Promise<boolean>){const end=Date.now()+12000;while(!await check()){assert.ok(Date.now()<end,'Timed out awaiting outbox state');await new Promise(r=>setTimeout(r,100));}}
       try{
-        await adminRedis.sendCommand(['ACL','SETUSER',username,'reset','on',`>${password}`,'+@connection','+publish','+subscribe','+unsubscribe',`&${channel}`]);
+        await adminRedis.sendCommand(['ACL','SETUSER',username,'reset','on',`>${password}`,'+@connection','+publish','+subscribe','+unsubscribe','+eval','+time','+zadd','+zrange','+zrem','+zremrangebyscore','+pexpire',`~${channel}:presence:*`,`&${channel}`]);
         const options={redisUrl:redisUrl.toString(),channel};
         stopA=await startRealtime(httpA,db.pool,authenticate,[],options);stopB=await startRealtime(httpB,poolB.pool,authenticate,[],options);
         await assert.rejects(startRealtime(createServer(),poolB.pool,authenticate,[])); // Cannot mix local and Redis dispatchers.
         httpA.listen(0,'127.0.0.1');httpB.listen(0,'127.0.0.1');await Promise.all([once(httpA,'listening'),once(httpB,'listening')]);
         const host=await connect(httpA,'host'),remote=await connect(httpB,'guest'),stranger=await connect(httpB,'outsider');
+        const pulse=(client:ReturnType<typeof io>)=>client.timeout(5000).emitWithAck('trip:presence',{tripId});
+        assert.equal((await pulse(stranger)).ok,false);
+        assert.equal((await host.timeout(5000).emitWithAck('trip:presence',{tripId,userId:outsider})).ok,false);
+        assert.equal((await pulse(remote)).ok,true);
+        assert.deepEqual((await pulse(host)).online.map((p:{id:string})=>p.id).sort(),[DEMO_USER,guest].sort());
+        const secondDevice=await connect(httpA,'guest');await pulse(secondDevice);secondDevice.disconnect();
+        await until(async()=>(await adminRedis.zRange(`${channel}:presence:${tripId}`,0,-1)).length===2);
+        assert.equal((await pulse(host)).online.filter((p:{id:string})=>p.id===guest).length,1);
+        const blocks=new BlockRepository(db.pool);await blocks.set(DEMO_USER,guest,true);
+        assert.deepEqual((await pulse(host)).online.map((p:{id:string})=>p.id),[DEMO_USER]);
+        assert.deepEqual((await pulse(remote)).online.map((p:{id:string})=>p.id),[guest]);
+        await blocks.set(DEMO_USER,guest,false);
+        // Force an expired server timestamp to exercise Redis cleanup without a 30-second wait.
+        const stale=(await adminRedis.zRange(`${channel}:presence:${tripId}`,0,-1)).filter(s=>s.startsWith(guest));
+        for(const value of stale)await adminRedis.zAdd(`${channel}:presence:${tripId}`,{score:0,value});
+        assert.deepEqual((await pulse(host)).online.map((p:{id:string})=>p.id),[DEMO_USER]);
+        await pulse(remote);
+        await adminRedis.sendCommand(['ACL','SETUSER',username,'-eval']);
+        assert.equal((await pulse(host)).ok,false);
+        await adminRedis.sendCommand(['ACL','SETUSER',username,'+eval']);
+        assert.equal((await pulse(host)).ok,true);
         let remoteChanges=0,strangerChanges=0;
         remote.on('trip:changed',event=>{if(event.tripId===tripId)remoteChanges++;});stranger.on('trip:changed',event=>{if(event.tripId===tripId)strangerChanges++;});
         const firstId=randomUUID();assert.equal((await host.timeout(5000).emitWithAck('trip:send',{tripId,id:firstId,body:'Across servers'})).ok,true);
@@ -401,13 +422,15 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
         await until(async()=>remoteChanges>before);
         await until(async()=>!!(await db.pool.query('SELECT delivered_at FROM trip_outbox WHERE message_id=$1',[secondId])).rows[0].delivered_at);
         await db.execute({type:'leave',tripId},guest);
+        assert.equal((await pulse(remote)).ok,false);
+        assert.deepEqual((await pulse(host)).online.map((p:{id:string})=>p.id),[DEMO_USER]);
         assert.equal((await remote.timeout(5000).emitWithAck('trip:sync',{tripId,after:0})).ok,false);
         await stopB();stopB=undefined;
         await host.timeout(5000).emitWithAck('trip:send',{tripId,id:randomUUID(),body:'Other server stopped'});
         assert.equal((await host.timeout(5000).emitWithAck('trip:sync',{tripId,after:2})).items[0].body,'Other server stopped');
       }finally{
         for(const client of clients)client.disconnect();await stopB?.();await stopA?.();await poolB.close();
-        await adminRedis.sendCommand(['ACL','DELUSER',username]);adminRedis.destroy();
+        await adminRedis.del(`${channel}:presence:${tripId}`);await adminRedis.sendCommand(['ACL','DELUSER',username]);adminRedis.destroy();
       }
     });
 
