@@ -1,5 +1,15 @@
 # Verification report — first milestone
 
+## Conversation presence — verified 2026-10-22
+
+Implementation commit: `a5d873a`, branch `feature/trektribe-multiuser`.
+
+- Added conversation-scoped presence with 10-second foreground heartbeats and 30-second per-device expiry. Local mode uses memory; multi-instance mode uses Redis server timestamps and expiring sorted sets. The client displays unique active participant names and clears presence when disconnected or backgrounded.
+- Every presence request verifies authentication and accepted membership. Responses filter blocked users and recheck the viewer's membership. Disconnect cleanup removes only that socket's session; expired entries provide fallback cleanup after crashes.
+- Local typechecking, all 22 unit/HTTP tests, API compilation and web export passed before the interruption. Both jobs passed in [presence validation CI](https://github.com/Rohitrb45/Trektribe/actions/runs/39627190003), confirmed on resume: PostgreSQL/Redis integration tests, unit/HTTP tests, builds and Android/iOS bundle exports.
+- Tests cover cross-instance presence, multiple devices, nonmembers, forged identities, bilateral blocks, stale Redis timestamps, Redis permission failure and membership removal. Local expiry is tested with a controlled clock; Redis expiry cleanup is tested using an explicitly stale score rather than waiting 30 seconds.
+- No database migration is required. Redis ACL additions and manual validation are documented in `FEATURE_VALIDATION.md`. Physical-device foreground/background behavior, live OIDC, load-balancer behavior and crash timing remain unverified. Production startup remains disabled.
+
 ## Chat across API instances — 2026-10-21
 
 Implementation commit: `87e5b6b`, branch `feature/trektribe-multiuser`.
