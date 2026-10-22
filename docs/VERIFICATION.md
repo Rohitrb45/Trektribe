@@ -142,3 +142,11 @@ The app is a development milestone. Follow the README for a local run and inspec
 - The file routes currently use the existing application shell. Feature-screen extraction and generated API clients remain pending.
 - Physical Android/iOS behavior and real OIDC callbacks are not verified. Web deployment requires SPA path fallback. See FEATURE_VALIDATION.md for manual checks.
 - Android and iOS JavaScript exports passed after the history-filter fix; these are not native binary or device tests.
+
+## Feature-screen extraction (2026-10-22)
+
+- Previous navigation commit `36f523c` passed both GitHub Actions jobs (`database` and `check`): https://github.com/Rohitrb45/Trektribe/actions/runs/39794654398.
+- Extracted Explore, Community, Trips and Profile into typed screen modules; shared UI controls/styles moved out of App. The shell retains mutations and modal state, including pinned route and invitation requests. File-route components still delegate rendering through the shell.
+- TypeScript (including a mobile unused-import check), all 26 tests, API/web builds, and Android/iOS JavaScript exports passed.
+- Chromium checks against the exported web app passed for navigation/history, retained search, trail reload/direct links, missing-trail handling, mobile-width Profile, profile edits, saved-trail navigation, likes, report publishing and outing creation. No page errors were observed. Outing date validation correctly rejected a missing date before the test supplied a future date.
+- These checks used Local demo mode. No new live OIDC, physical-device, or connected-mode manual verification is claimed for this refactor. Generated API clients remain the next client integration milestone.

@@ -122,3 +122,16 @@ Run `npm run web`. Explore uses `/`, Community `/community`, Trips `/trips`, and
 5. Open a conversation, enter a draft, then navigate Back to leave Trips. Reopen the conversation and verify draft recovery and reconnection.
 
 Web hosting must rewrite application paths to `index.html` (SPA fallback); API endpoints must keep their own routing. The `/auth` route is reserved for AuthSession callbacks. OIDC callback verification still needs a real provider. Native `trektribe://trails/<id>` links require rebuilding the app after the Router plugin installation; cold/warm links and Android Back still need physical-device validation. Native export checks only validate bundling.
+## Extracted feature screens (2026-10-22)
+
+The main screens now live in `apps/mobile/src/screens/`, with shared controls and styles in `apps/mobile/src/ui.tsx`. The existing application shell owns authentication, data mutations, dialogs and URL selection. This refactor does not add a new user flow.
+
+Regression checks in Local demo mode:
+
+1. Edit your display name in Profile and verify it updates after saving.
+2. Save a trail in Explore, then use Profile's **Explore saved trails** action. Confirm search is cleared and the saved trail is visible.
+3. Like a Community report, publish a text story, and confirm both changes appear.
+4. In Trips, create an outing with a future date and verify it appears in the list.
+5. Repeat the URL-navigation checks above, including retained filters after Back/Forward.
+
+Connected-mode invitations, pinned routes, chat and blocking still use the same application callbacks. Physical-device verification remains deferred.
