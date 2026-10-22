@@ -132,3 +132,13 @@ The app is a development milestone. Follow the README for a local run and inspec
 - Increased the HTTP test's startup deadline from roughly six seconds to 30 seconds, with bounded health requests and useful timeout diagnostics. The Windows test run needed about 25 seconds.
 - `npm audit fix` left 35 findings (12 moderate, 23 high). Forced changes were not applied because npm proposed incompatible Expo/React Native changes. Dependency remediation remains outstanding.
 - Docker was unavailable; PostgreSQL/PostGIS and native device behavior remain unverified.
+
+## Expo Router navigation (2026-10-22)
+
+- Clean `npm ci` completed using Node 22.23.3; Router 6 and native dependencies match Expo SDK 54.
+- TypeScript, all 26 unit/API tests, API compilation and web export passed.
+- Automated Chromium smoke test against the exported web app passed: tab URLs, browser Back/Forward, retained search filters, direct/reloaded trail details, detail-to-Trips navigation, missing-trail recovery, and mobile-width Profile navigation. No browser page errors were observed.
+- Browser history can remount the layout. Discovery preferences use a memory-only store and reset on explicit sign-out; persisted application data reloads through the existing adapter. Route changes dismiss transient dialogs and unmount chat/presence subscriptions.
+- The file routes currently use the existing application shell. Feature-screen extraction and generated API clients remain pending.
+- Physical Android/iOS behavior and real OIDC callbacks are not verified. Web deployment requires SPA path fallback. See FEATURE_VALIDATION.md for manual checks.
+- Android and iOS JavaScript exports passed after the history-filter fix; these are not native binary or device tests.

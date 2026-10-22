@@ -30,7 +30,7 @@ The project pins Expo SDK 54 and its matching React / React Native versions. Use
 
 ## What works
 
-- Responsive Explore, Community, Trips, and Profile screens.
+- Responsive Explore, Community, Trips, and Profile screens with Expo Router URLs, browser history, and direct trail links.
 - Search by trail name, region, or highlights; difficulty and saved-trail filters.
 - Trail details, metrics, and clearly labeled illustrative route previews.
 - Save/unsave trails and persist them across reloads.

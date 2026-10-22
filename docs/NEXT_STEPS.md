@@ -2,7 +2,7 @@
 
 ## 1. Turn the single-user demo into a multi-user application
 
-Progress (2026-10-19): configurable JWT verification, issuer/subject identity mapping, resource endpoints, PKCE client sign-in, profile editing, ownership tests, and bilateral user blocking are implemented. Blocking includes report-author controls and a profile unblock list, filtered feeds/comments/chat, and new-interaction restrictions. Live-provider verification, Expo Router, and generated API clients remain outstanding. Production startup is still disabled.
+Progress (2026-10-19): configurable JWT verification, issuer/subject identity mapping, resource endpoints, PKCE client sign-in, profile editing, ownership tests, and bilateral user blocking are implemented. Blocking includes report-author controls and a profile unblock list, filtered feeds/comments/chat, and new-interaction restrictions. Expo Router navigation and addressable trail details are implemented (2026-10-22). The persistent application shell retains shared data and filters; extracting individual feature screens, live-provider verification, and generated API clients remain outstanding. Production startup is still disabled.
 
 Choose an OIDC provider, implement token verification, and map subjects to user IDs. Replace the static demo identity and aggregate demo endpoints with resource endpoints. Derive authorship and permissions from the authenticated identity. Add ownership, blocking, visibility, and organizer policies and authorization tests. Split `App.tsx` into feature screens as navigation expands; introduce Expo Router and generated OpenAPI clients.
 

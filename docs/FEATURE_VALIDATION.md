@@ -110,3 +110,15 @@ Apply migrations with `npm run db:migrate` before starting the API. In Community
 With two accounts, verify both feeds hide the other's reports and comments; likes, comments, new joins, approvals and invitation redemption fail between blocked accounts. Unblocking one side does not override a block made by the other account. Existing shared outings and rosters remain accessible so participants can leave; chat history fetched from the server excludes blocked authors. Shared group messages can still be sent to other participants. Public trail geometry remains accessible.
 
 Refresh other open app sessions and reopen conversations after changing blocks: already downloaded content is not remotely erased. The database integration suite exercises these rules without requiring an external identity provider. Live two-account sign-in and physical-device checks remain pending.
+
+## URL navigation (2026-10-22)
+
+Run `npm run web`. Explore uses `/`, Community `/community`, Trips `/trips`, and Profile `/profile`.
+
+1. Switch tabs and use browser Back/Forward; the address and selected screen should agree.
+2. Search/filter Explore, visit Profile and return. Filters should be retained. Save a trail, switch tabs and return; the saved state should be current.
+3. Open a trail. Copy its `/trails/<id>` address into another tab or reload; the matching detail dialog should open after loading. Close returns to Explore. A missing trail or unknown path shows an unavailable-page message with a return button.
+4. Open an outing's pinned route; it must still show the outing version, even when the trail's latest geometry has changed.
+5. Open a conversation, enter a draft, then navigate Back to leave Trips. Reopen the conversation and verify draft recovery and reconnection.
+
+Web hosting must rewrite application paths to `index.html` (SPA fallback); API endpoints must keep their own routing. The `/auth` route is reserved for AuthSession callbacks. OIDC callback verification still needs a real provider. Native `trektribe://trails/<id>` links require rebuilding the app after the Router plugin installation; cold/warm links and Android Back still need physical-device validation. Native export checks only validate bundling.
