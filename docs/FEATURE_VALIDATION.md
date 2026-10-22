@@ -20,9 +20,19 @@ Apply migrations using `DATABASE_URL`, `DEMO_MODE=true`, and `npm run db:migrate
 
 Socket events are `trip:send` (tripId, id, body) and `trip:sync` (tripId, after). Authentication is checked on connection and each event. Success acknowledgments follow the database commit. Each message receives a per-outing sequence and an outbox row in the same transaction. Notifications prompt synchronization; PostgreSQL history is authoritative.
 
-The dispatcher sends only change notifications to currently accepted members; disconnected clients backfill on reconnect. Without Redis, only one dispatcher may use a database. With Redis configured consistently on all API instances, independent dispatchers claim outbox rows and publish hints to every instance, which rechecks authentication and membership locally. Conversation presence is implemented; persistent unsent drafts remain pending. Unsent drafts can be lost when the app closes. Device lifecycle and live OIDC redirects remain unverified.
+The dispatcher sends only change notifications to currently accepted members; disconnected clients backfill on reconnect. Without Redis, only one dispatcher may use a database. With Redis configured consistently on all API instances, independent dispatchers claim outbox rows and publish hints to every instance, which rechecks authentication and membership locally. Conversation presence and device-local unsent chat drafts are implemented. Draft storage failures are surfaced in the composer. Device lifecycle and live OIDC redirects remain unverified.
 
 Run `npm test` for local checks and `npm run test:db` with `TEST_DATABASE_URL` and `TEST_REDIS_URL` for real PostGIS/Redis/socket tests. Use disposable services: the database suite creates and drops its own database, and the Redis test creates/removes a temporary ACL user and isolated channel. The Redis test connection needs ACL administration privileges. See `VERIFICATION.md` for recorded results.
+
+## Saved chat drafts
+
+Open an outing conversation, type a message, and wait for **Draft saved on this device**. Close and reopen the conversation, or reload the app: the text should return. The app saves changes as you type and waits for pending writes before closing the conversation normally. Drafts are scoped to the API URL, account UUID and outing UUID. Another account or outing must not show the same draft.
+
+Sending saves the message ID before contacting the server. After an unconfirmed send, reopening and sending the unchanged draft reuses that ID; the server's existing idempotency check prevents a duplicate message. Changing the message text creates a new ID and represents a new submission. Confirmed sends clear the matching draft. **Discard draft** removes it explicitly. Storage errors retain text on screen and offer retry/discard controls; sending stops if its draft cannot first be saved.
+
+Drafts are local AsyncStorage data, not encrypted secure-store data or a cloud backup. They remain across sign-out but are loaded only for the same account/API/outing. Clearing application/browser storage removes them. Drafts are not automatically sent after reconnection. Concurrent browser tabs editing the same draft are not coordinated; use one conversation editor per account/outing. A force-close before an asynchronous save finishes can lose the latest keystrokes. Device crash/background durability and manual multi-account UI behavior still require validation. Forum drafts remain temporary.
+
+No server migration or additional dependency is needed. Automated tests cover save ordering, reopening, scope isolation, late acknowledgments, failed storage retries and malformed draft handling.
 
 ## Chat across API instances
 

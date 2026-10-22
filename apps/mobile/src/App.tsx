@@ -91,7 +91,7 @@ function Application({logout}:{logout?:()=>Promise<void>}){
     <Composer visible={composer} state={state} busy={busy} onClose={()=>setComposer(false)} onSubmit={async cmd=>{const ok=await act(cmd,'Your trail story is published.');if(ok)setComposer(false);return ok;}}/>
     {blockSettings&&<BlockSettings onClose={()=>setBlockSettings(false)} onChanged={refresh}/>}
     {forum&&<Forum userId={state.profile.id} onClose={()=>setForum(false)}/>}
-    {chatTrip&&<TripChat tripId={chatTrip} onClose={()=>setChatTrip(null)}/>}
+    {chatTrip&&<TripChat userId={state.profile.id} tripId={chatTrip} onClose={()=>setChatTrip(null)}/>}
     {!!routeEditor&&<RouteEditor trek={typeof routeEditor==='object'?routeEditor:undefined} onClose={()=>setRouteEditor(false)} onImported={refresh}/>}
     {invite!==null&&<InvitationSheet token={invite||undefined} onClose={()=>setInvite(null)} onAccepted={refresh}/>}
     {editProfile&&<ProfileEditor profile={state.profile} busy={busy} onClose={()=>setEditProfile(false)} onSubmit={cmd=>act(cmd,'Profile updated.')}/>}
