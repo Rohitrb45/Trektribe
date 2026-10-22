@@ -1,5 +1,15 @@
 # Verification report — first milestone
 
+## Saved chat drafts — 2026-10-22
+
+Implementation commit: `d3df205`, branch `feature/trektribe-multiuser`.
+
+- Added AsyncStorage drafts scoped to API URL, account UUID and outing UUID. The composer restores saved text, shows storage status, retries failed storage operations, and supports explicit discard. Normal closing waits for queued writes.
+- Message IDs are saved before sending and retained for unconfirmed retries. Acknowledgments remove only a matching draft, protecting a newer draft from a late acknowledgment within the same app runtime.
+- Local typechecking, all 25 unit/HTTP tests, API compilation and web export passed. Both jobs passed in [saved draft CI](https://github.com/Rohitrb45/Trektribe/actions/runs/39788017912), including PostgreSQL/Redis integration tests and Android/iOS bundle exports.
+- Draft tests use a storage adapter to exercise reopening, account/API/outing isolation, delayed writes, acknowledgment races, failed writes, invalid data and discard. Existing integration tests cover server-side message idempotency.
+- No migration or new dependency is required. Manual UI, physical-device storage durability and live sign-in remain unverified. Drafts use local unencrypted app storage, persist across sign-out for the same account, and are not synchronized across devices or concurrent browser tabs. A force-close before saving completes can lose the latest keystrokes.
+
 ## Conversation presence — verified 2026-10-22
 
 Implementation commit: `a5d873a`, branch `feature/trektribe-multiuser`.
