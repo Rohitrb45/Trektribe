@@ -159,3 +159,4 @@ The app is a development milestone. Follow the README for a local run and inspec
 - TypeScript, API/web builds, and Android/iOS JavaScript exports passed. Chromium local-demo checks passed for navigation/history, retained filters, trail links, profile edits, saved trails, likes, reports and outing creation, with no page errors.
 - Prior screen-extraction CI passed both jobs: https://github.com/Rohitrb45/Trektribe/actions/runs/39801832797.
 - Live OIDC and physical-device behavior remain unverified. Other mutations, forum/moderation, blocking, GPX/invitations and chat HTTP endpoints still use the previous request adapter. This is not a complete generated API migration. See API_CLIENT.md.
+- Implementation commit `f58f0af` passed both CI jobs (`check` and `database`, including PostgreSQL/PostGIS and Redis): https://github.com/Rohitrb45/Trektribe/actions/runs/39962576279.
