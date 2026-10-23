@@ -1,3 +1,4 @@
+import { createApiClient, apiData } from '../apps/mobile/src/api/client';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -26,6 +27,21 @@ test('HTTP API enforces demo auth, validates requests, pages feed, and persists 
   const before=await(await fetch(`${base}/demo/state`,{headers})).json();
   assert.equal((await fetch(`${base}/me`)).status,401);
   assert.equal((await(await fetch(`${base}/me`,{headers})).json()).id,before.profile.id);
+  const client=createApiClient(`http://127.0.0.1:${port}`,()=> 'trektribe-local-demo');
+  assert.deepEqual(await apiData(client.GET('/me')),before.profile);
+  assert.deepEqual((await apiData(client.GET('/treks'))).items,before.treks);
+  assert.deepEqual((await apiData(client.GET('/group-treks'))).items,before.trips);
+  assert.deepEqual((await apiData(client.GET('/me/saved-treks'))).items,[]);
+  const clientPage=await apiData(client.GET('/feed',{params:{query:{limit:1}}}));
+  assert.equal(clientPage.items.length,1);
+  assert.ok(clientPage.nextCursor);
+  const clientNext=await apiData(client.GET('/feed',{params:{query:{limit:1,cursor:clientPage.nextCursor!}}}));
+  assert.notEqual(clientNext.items[0].id,clientPage.items[0].id);
+  assert.deepEqual((await apiData(client.GET('/posts/{id}/comments',{params:{path:{id:before.posts[0].id}}}))).items,before.comments.filter((c:any)=>c.postId===before.posts[0].id));
+  assert.deepEqual(await apiData(client.GET('/treks/{id}',{params:{path:{id:before.treks[0].id}}})),before.treks[0]);
+  assert.deepEqual((await apiData(client.POST('/me/saved-treks/{id}',{params:{path:{id:before.treks[0].id}},body:{saved:true}}))).items,[before.treks[0].id]);
+  assert.deepEqual((await apiData(client.POST('/me/saved-treks/{id}',{params:{path:{id:before.treks[0].id}},body:{saved:false}}))).items,[]);
+  assert.ok((await apiData(client.POST('/posts/{id}/like',{params:{path:{id:before.posts[0].id}},body:{liked:true}}))).likedBy.includes(before.profile.id));
   const report={id:'00000000-0000-4000-8000-000000000997',trekId:before.treks[0].id,content:'Resource report',rating:4,condition:'Clear',observedAt:'2020-01-01'};
   assert.equal((await fetch(`${base}/posts`,{method:'POST',headers,body:JSON.stringify({...report,userId:'spoof'})})).status,400);
   const resource=await fetch(`${base}/posts`,{method:'POST',headers,body:JSON.stringify(report)});

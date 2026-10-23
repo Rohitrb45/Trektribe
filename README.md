@@ -150,3 +150,7 @@ Live-provider sign-in verification; blocking and moderation; photo/video capture
 Profile and gear editing, outing creation/cancellation, configurable OIDC authentication, private invitations, GPX import, immutable route versions, and persisted outing conversations are implemented. PostgreSQL is required for invitations, GPX import, and conversations; two real users also require a configured OIDC provider. See [authentication setup](docs/AUTHENTICATION.md) and [feature validation](docs/FEATURE_VALIDATION.md).
 
 Badges and initial activity totals are samples. Offline-capable browser assets are not offline map downloads. Read `docs/NEXT_STEPS.md` for remaining milestones. Production startup remains disabled.
+
+## API contract development
+
+See [the generated client guide](docs/API_CLIENT.md) for contract scope, regeneration, and checks. Run `npm run api:generate` after editing the contract; CI verifies it with `npm run api:check`.

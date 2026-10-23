@@ -1,8 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { withReportRatings, applyCommand, Command, createSeed, DEMO_USER, State, Post, Comment, Profile, Trip, Trek } from '@trektribe/core';
+import { withReportRatings, applyCommand, Command, createSeed, DEMO_USER, State } from '@trektribe/core';
 import { accessToken, authenticatedMode } from './session';
+import { createApiClient, apiData } from './api/client';
+import { toTrek } from './api/treks';
 const key = 'trektribe.demo.v1';
 export const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
+const client = createApiClient(apiUrl || '', () => authenticatedMode ? accessToken() : 'trektribe-local-demo');
 export const mode = authenticatedMode ? 'Connected' : apiUrl ? 'Connected demo' : 'Local demo';
 export function listBlocks(){return request<{items:{id:string;name:string}[]}>('/me/blocks');}
 export function setBlock(id:string,blocked:boolean){return request(`/me/blocks/${id}`,{blocked});}
@@ -47,11 +50,11 @@ export async function loadState(): Promise<State> {
   if (authenticatedMode) {
     if (!apiUrl) throw new Error('The API URL is missing.');
     const [profile, treks, trips, saved, page] = await Promise.all([
-      request<Profile>('/me'), request<{items:Trek[]}>('/treks'), request<{items:Trip[]}>('/group-treks'),
-      request<{items:string[]}>('/me/saved-treks'), request<{items:Post[]}>('/feed?limit=50'),
+      apiData(client.GET('/me')), apiData(client.GET('/treks')), apiData(client.GET('/group-treks')),
+      apiData(client.GET('/me/saved-treks')), apiData(client.GET('/feed', {params:{query:{limit:50}}})),
     ]);
-    const comments = await Promise.all(page.items.map(p=>request<{items:Comment[]}>(`/posts/${p.id}/comments`)));
-    return {version:1,profile,treks:treks.items,trips:trips.items,saved:{[profile.id]:saved.items},posts:page.items,comments:comments.flatMap(p=>p.items)};
+    const comments = await Promise.all(page.items.map(p=>apiData(client.GET('/posts/{id}/comments', {params:{path:{id:p.id}}}))));
+    return {version:1,profile,treks:treks.items.map(toTrek),trips:trips.items,saved:{[profile.id]:saved.items},posts:page.items,comments:comments.flatMap(p=>p.items)};
   }
   if (apiUrl) return request('/demo/state');
   const raw = await AsyncStorage.getItem(key);
@@ -68,8 +71,8 @@ export function dispatch(command: Command): Promise<State> {
         case 'create-trip': { const {type,...body}=command;await request('/group-treks',body);break; }
         case 'cancel-trip': await request(`/group-treks/${command.tripId}/cancel`,{});break;
         case 'cohost': await request(`/group-treks/${command.tripId}/cohosts`,{userId:command.userId,enabled:command.enabled});break;
-        case 'save': await request(`/me/saved-treks/${command.trekId}`,{saved:command.saved});break;
-        case 'like': await request(`/posts/${command.postId}/like`,{liked:command.liked});break;
+        case 'save': await apiData(client.POST('/me/saved-treks/{id}',{params:{path:{id:command.trekId}},body:{saved:command.saved}}));break;
+        case 'like': await apiData(client.POST('/posts/{id}/like',{params:{path:{id:command.postId}},body:{liked:command.liked}}));break;
         case 'post': { const {type,...body}=command;await request('/posts',body);break; }
         case 'comment': await request(`/posts/${command.postId}/comments`,{id:command.id,body:command.body});break;
         case 'join': case 'leave': await request(`/group-treks/${command.tripId}/${command.type}`,{});break;

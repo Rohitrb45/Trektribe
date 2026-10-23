@@ -150,3 +150,12 @@ The app is a development milestone. Follow the README for a local run and inspec
 - TypeScript (including a mobile unused-import check), all 26 tests, API/web builds, and Android/iOS JavaScript exports passed.
 - Chromium checks against the exported web app passed for navigation/history, retained search, trail reload/direct links, missing-trail handling, mobile-width Profile, profile edits, saved-trail navigation, likes, report publishing and outing creation. No page errors were observed. Outing date validation correctly rejected a missing date before the test supplied a future date.
 - These checks used Local demo mode. No new live OIDC, physical-device, or connected-mode manual verification is claimed for this refactor. Generated API clients remain the next client integration milestone.
+## Generated core API client, first stage (2026-10-23)
+
+- Added a partial OpenAPI 3.1 contract covering nine core read/save/like operations, generated TypeScript schemas, and a typed fetch client used by the mobile OIDC resource loader and save/like actions.
+- `npm run api:check` verifies generated-file freshness in CI. Compile-time compatibility checks compare the five core response models against the generated schemas.
+- All 29 tests pass, including generated-client calls against the local HTTP API, current-token lookup, cursor serialization, false request values, structured/non-JSON errors, and coordinate validation.
+- Full-suite API startup twice exceeded the existing 30-second deadline with unrestricted worker concurrency; isolated client/API tests passed. Limiting test workers to four made the full suite pass in about seven seconds without extending the deadline.
+- TypeScript, API/web builds, and Android/iOS JavaScript exports passed. Chromium local-demo checks passed for navigation/history, retained filters, trail links, profile edits, saved trails, likes, reports and outing creation, with no page errors.
+- Prior screen-extraction CI passed both jobs: https://github.com/Rohitrb45/Trektribe/actions/runs/39801832797.
+- Live OIDC and physical-device behavior remain unverified. Other mutations, forum/moderation, blocking, GPX/invitations and chat HTTP endpoints still use the previous request adapter. This is not a complete generated API migration. See API_CLIENT.md.

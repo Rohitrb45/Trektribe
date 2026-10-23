@@ -135,3 +135,8 @@ Regression checks in Local demo mode:
 5. Repeat the URL-navigation checks above, including retained filters after Back/Forward.
 
 Connected-mode invitations, pinned routes, chat and blocking still use the same application callbacks. Physical-device verification remains deferred.
+## Generated client, first stage (2026-10-23)
+
+Run `npm run api:check`, `npm run typecheck`, and `npm test`. The API test starts a temporary local API and exercises generated-client profile/trail/outing/feed/comment reads and save/unsave/like actions. Client tests cover current-token lookup, query encoding, false request values, API errors and coordinate validation.
+
+In Local demo mode, repeat the extracted-screen smoke checks above. Live OIDC resource loading requires your future provider setup; it is not verified simply by running `npm run web`. See `docs/API_CLIENT.md` for scope and regeneration instructions.
