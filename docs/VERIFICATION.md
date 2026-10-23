@@ -174,3 +174,5 @@ The app is a development milestone. Follow the README for a local run and inspec
 - All 32 local tests, TypeScript, generated-code freshness, API/web builds and Android/iOS JavaScript exports passed.
 - Added a PostgreSQL-backed HTTP integration test for successful block/unblock, blocked-invitation rejection, invitation issuance and repeat acceptance. Database execution is tracked in CI below; no local PostgreSQL service is available.
 - Native-device and live OIDC verification remain pending. Forums, GPX/routes and chat HTTP endpoints remain to migrate.
+
+- Implementation `c34a09f` passed both CI jobs, including the new PostgreSQL HTTP round trip: https://github.com/Rohitrb45/Trektribe/actions/runs/39968230442.
