@@ -140,3 +140,6 @@ Connected-mode invitations, pinned routes, chat and blocking still use the same 
 Run `npm run api:check`, `npm run typecheck`, and `npm test`. The API test starts a temporary local API and exercises generated-client profile/trail/outing/feed/comment reads and save/unsave/like actions. Client tests cover current-token lookup, query encoding, false request values, API errors and coordinate validation.
 
 In Local demo mode, repeat the extracted-screen smoke checks above. Live OIDC resource loading requires your future provider setup; it is not verified simply by running `npm run web`. See `docs/API_CLIENT.md` for scope and regeneration instructions.
+## Generated core mutations (2026-10-23)
+
+Run `npm run api:check`, `npm run typecheck` and `npm test`. The HTTP test now exercises the command adapter for profile edits, idempotent reports, comments, outing creation/cancellation, join/leave, approvals, and cohost grant/revoke. It also checks that cancelling another organizer's outing is rejected. Mutation contracts are compared with server validators. Local-demo commands still use local storage; live OIDC validation remains pending.

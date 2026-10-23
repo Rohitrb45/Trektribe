@@ -3,6 +3,7 @@ import { withReportRatings, applyCommand, Command, createSeed, DEMO_USER, State 
 import { accessToken, authenticatedMode } from './session';
 import { createApiClient, apiData } from './api/client';
 import { toTrek } from './api/treks';
+import { executeCommand } from './api/commands';
 const key = 'trektribe.demo.v1';
 export const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
 const client = createApiClient(apiUrl || '', () => authenticatedMode ? accessToken() : 'trektribe-local-demo');
@@ -66,18 +67,7 @@ export async function loadState(): Promise<State> {
 export function dispatch(command: Command): Promise<State> {
   const result = queue.then(async () => {
     if (authenticatedMode) {
-      switch(command.type) {
-        case 'profile': { const {type,...body}=command;await request('/me',body);break; }
-        case 'create-trip': { const {type,...body}=command;await request('/group-treks',body);break; }
-        case 'cancel-trip': await request(`/group-treks/${command.tripId}/cancel`,{});break;
-        case 'cohost': await request(`/group-treks/${command.tripId}/cohosts`,{userId:command.userId,enabled:command.enabled});break;
-        case 'save': await apiData(client.POST('/me/saved-treks/{id}',{params:{path:{id:command.trekId}},body:{saved:command.saved}}));break;
-        case 'like': await apiData(client.POST('/posts/{id}/like',{params:{path:{id:command.postId}},body:{liked:command.liked}}));break;
-        case 'post': { const {type,...body}=command;await request('/posts',body);break; }
-        case 'comment': await request(`/posts/${command.postId}/comments`,{id:command.id,body:command.body});break;
-        case 'join': case 'leave': await request(`/group-treks/${command.tripId}/${command.type}`,{});break;
-        case 'approve': await request(`/group-treks/${command.tripId}/approve`,{userId:command.userId});break;
-      }
+      await executeCommand(client, command);
       return loadState();
     }
     if (apiUrl) return request<State>('/demo/commands', command);
