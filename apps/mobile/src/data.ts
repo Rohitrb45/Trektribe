@@ -8,8 +8,8 @@ const key = 'trektribe.demo.v1';
 export const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
 const client = createApiClient(apiUrl || '', () => authenticatedMode ? accessToken() : 'trektribe-local-demo');
 export const mode = authenticatedMode ? 'Connected' : apiUrl ? 'Connected demo' : 'Local demo';
-export function listBlocks(){return request<{items:{id:string;name:string}[]}>('/me/blocks');}
-export function setBlock(id:string,blocked:boolean){return request(`/me/blocks/${id}`,{blocked});}
+export function listBlocks(){return apiData(client.GET('/me/blocks'));}
+export function setBlock(id:string,blocked:boolean){return apiData(client.POST('/me/blocks/{id}',{params:{path:{id}},body:{blocked}}));}
 export type ForumThread={id:string;userId:string;author:string;title:string;body:string;closed:boolean;revision:number};
 export type ForumReply={id:string;userId:string;author:string;body:string;sequence:number;revision:number};
 export type ForumReport={id:number;reason:string;title:string;body:string;reportedTitle:string;reportedBody:string;removed:boolean};
@@ -24,11 +24,11 @@ export function replyToForum(id:string,data:{id:string;body:string}){return requ
 export function closeForumThread(id:string,closed:boolean){return request(`/forum/threads/${id}/closed`,{closed});}
 export async function createInvitation(tripId:string) {
   if(!apiUrl)throw new Error('Invitations require a connected PostgreSQL API.');
-  return request<{token:string;expiresAt:string}>(`/group-treks/${tripId}/invitations`,{});
+  return apiData(client.POST('/group-treks/{id}/invitations',{params:{path:{id:tripId}}}));
 }
 export async function acceptInvitation(token:string) {
   if(!apiUrl)throw new Error('Invitations require a connected PostgreSQL API.');
-  return request<{tripId:string}>('/invitations/accept',{token});
+  return apiData(client.POST('/invitations/accept',{body:{token}}));
 }
 export function importGpx(body:{gpx:string;title:string;region:string;description:string;difficulty:string},trekId?:string){
   return request<{trekId:string;routeVersionId:string}>(trekId?`/treks/${trekId}/route-versions`:'/treks/import',body);

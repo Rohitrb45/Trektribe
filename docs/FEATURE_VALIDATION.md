@@ -143,3 +143,7 @@ In Local demo mode, repeat the extracted-screen smoke checks above. Live OIDC re
 ## Generated core mutations (2026-10-23)
 
 Run `npm run api:check`, `npm run typecheck` and `npm test`. The HTTP test now exercises the command adapter for profile edits, idempotent reports, comments, outing creation/cancellation, join/leave, approvals, and cohost grant/revoke. It also checks that cancelling another organizer's outing is rejected. Mutation contracts are compared with server validators. Local-demo commands still use local storage; live OIDC validation remains pending.
+
+## Generated blocking and invitation clients (2026-10-23)
+
+Run `npm run api:check`, `npm run typecheck` and `npm test`. With the documented disposable PostgreSQL and Redis test services, run `npm run test:db` for HTTP round trips covering block/unblock, blocked invitation rejection, invitation creation and repeat acceptance. Local JSON mode returns the existing PostgreSQL-required error. Native-device and live OIDC validation are still pending.

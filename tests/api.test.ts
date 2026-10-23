@@ -1,5 +1,5 @@
 import { executeCommand } from '../apps/mobile/src/api/commands';
-import { createApiClient, apiData } from '../apps/mobile/src/api/client';
+import { createApiClient, apiData, ApiError } from '../apps/mobile/src/api/client';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -29,6 +29,13 @@ test('HTTP API enforces demo auth, validates requests, pages feed, and persists 
   assert.equal((await fetch(`${base}/me`)).status,401);
   assert.equal((await(await fetch(`${base}/me`,{headers})).json()).id,before.profile.id);
   const client=createApiClient(`http://127.0.0.1:${port}`,()=> 'trektribe-local-demo');
+  // PostgreSQL-only endpoints must preserve their explicit unavailable response in local mode.
+  for(const call of [
+    ()=>client.GET('/me/blocks'),
+    ()=>client.POST('/me/blocks/{id}',{params:{path:{id:before.profile.id}},body:{blocked:false}}),
+    ()=>client.POST('/group-treks/{id}/invitations',{params:{path:{id:before.trips[0].id}}}),
+    ()=>client.POST('/invitations/accept',{body:{token:'a'.repeat(43)}}),
+  ]) await assert.rejects(call(),(error:unknown)=>error instanceof ApiError && error.status===409);
   assert.deepEqual(await apiData(client.GET('/me')),before.profile);
   assert.deepEqual((await apiData(client.GET('/treks'))).items,before.treks);
   assert.deepEqual((await apiData(client.GET('/group-treks'))).items,before.trips);

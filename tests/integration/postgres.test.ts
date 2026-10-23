@@ -1,7 +1,8 @@
+import { createApiClient, apiData, ApiError } from '../../apps/mobile/src/api/client';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Pool } from 'pg';
 import { PostgresStore } from '../../apps/api/src/store';
@@ -496,6 +497,32 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await assert.rejects(db.execute({ type: 'approve', tripId: trip.id, userId: DEMO_USER }), (e: unknown) => e instanceof DomainError && e.status === 403);
       await db.execute({ type: 'leave', tripId: trip.id });
       assert.equal((await db.read()).trips.find(t => t.id === trip.id)!.members.some(m => m.userId === DEMO_USER), false);
+    });
+    await t.test('generated blocking and invitation clients round-trip through the PostgreSQL HTTP API', async()=>{
+      const other=await db.identify({issuer:'https://client-test.example',subject:randomUUID()});
+      const ownId=randomUUID(),otherId=randomUUID();
+      for(const [id,actor] of [[ownId,DEMO_USER],[otherId,other]])await db.execute({type:'create-trip',id,trekId:seed.treks[0].id,title:'Client invitation',startsAt:'2099-01-01T00:00:00Z',timezone:'Asia/Kolkata',visibility:'private',maxParticipants:5},actor);
+      const incoming=await db.invite(otherId,other);
+      const port=3201;
+      const child=spawn(process.execPath,['--import','tsx','apps/api/src/main.ts'],{env:{...process.env,TSX_TSCONFIG_PATH:'apps/api/tsconfig.json',DEMO_MODE:'true',AUTH_MODE:'',NODE_ENV:'test',DATABASE_URL:url.toString(),REDIS_URL:'',PORT:String(port),HOST:'127.0.0.1'},stdio:['ignore','pipe','pipe']});
+      let logs='';child.stdout.on('data',v=>logs+=v);child.stderr.on('data',v=>logs+=v);
+      try{
+        const base=`http://127.0.0.1:${port}`;let ready=false;
+        const deadline=Date.now()+30_000;
+        while(Date.now()<deadline&&child.exitCode===null){try{ready=(await fetch(`${base}/v1/health`,{signal:AbortSignal.timeout(1000)})).ok;}catch{}if(ready)break;await new Promise(r=>setTimeout(r,100));}
+        assert.ok(ready,logs||'API startup timed out');
+        const client=createApiClient(base,()=> 'trektribe-local-demo');
+        await apiData(client.POST('/me/blocks/{id}',{params:{path:{id:other}},body:{blocked:true}}));
+        assert.ok((await apiData(client.GET('/me/blocks'))).items.some(p=>p.id===other));
+        await assert.rejects(apiData(client.POST('/invitations/accept',{body:{token:incoming.token}})),(e:unknown)=>e instanceof ApiError&&e.status===403);
+        await apiData(client.POST('/me/blocks/{id}',{params:{path:{id:other}},body:{blocked:false}}));
+        assert.equal((await apiData(client.GET('/me/blocks'))).items.some(p=>p.id===other),false);
+        const issued=await apiData(client.POST('/group-treks/{id}/invitations',{params:{path:{id:ownId}}}));
+        assert.match(issued.token,/^[A-Za-z0-9_-]{43}$/);assert.ok(Date.parse(issued.expiresAt)>Date.now());
+        assert.deepEqual(await db.acceptInvite(issued.token,other),{tripId:ownId});
+        assert.deepEqual(await apiData(client.POST('/invitations/accept',{body:{token:incoming.token}})),{tripId:otherId});
+        assert.deepEqual(await apiData(client.POST('/invitations/accept',{body:{token:incoming.token}})),{tripId:otherId});
+      }finally{child.kill('SIGTERM');if(child.exitCode===null)await once(child,'exit');}
     });
   } finally {
     await store?.close();

@@ -168,3 +168,9 @@ The app is a development milestone. Follow the README for a local run and inspec
 - Generated-code freshness, TypeScript, all 31 tests, API/web builds, Android/iOS JavaScript exports and Chromium local-demo workflow checks passed.
 - An initial full-suite run timed out during API startup. The isolated API test and subsequent full-suite run without overlapping builds passed; the startup deadline and test assertions were retained.
 - Blocking, forums/moderation, GPX/routes, invitations and chat HTTP requests remain outside the generated contract. Live OIDC and physical-device testing are still pending.
+## Generated blocking and invitation clients (2026-10-23)
+
+- Extended contract coverage to 22 operations and migrated block-list, block/unblock, invitation creation and acceptance requests.
+- All 32 local tests, TypeScript, generated-code freshness, API/web builds and Android/iOS JavaScript exports passed.
+- Added a PostgreSQL-backed HTTP integration test for successful block/unblock, blocked-invitation rejection, invitation issuance and repeat acceptance. Database execution is tracked in CI below; no local PostgreSQL service is available.
+- Native-device and live OIDC verification remain pending. Forums, GPX/routes and chat HTTP endpoints remain to migrate.
