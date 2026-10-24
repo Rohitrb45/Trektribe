@@ -184,3 +184,5 @@ The app is a development milestone. Follow the README for a local run and inspec
 - All 34 tests, TypeScript, generated-code freshness, API/web builds and Android/iOS JavaScript exports passed. An initial API startup timeout passed on rerun without extending the deadline.
 - Extended the PostgreSQL HTTP test to cover import, immutable outing geometry after replacement, invalid GPX, and unauthorized replacement. Its CI result is recorded below.
 - Forum and chat HTTP migration, live OIDC, basemaps and physical-device validation remain pending.
+
+- Implementation `4ac97bd` passed both CI jobs, including the PostgreSQL pinned-route HTTP regression: https://github.com/Rohitrb45/Trektribe/actions/runs/40093092656.
