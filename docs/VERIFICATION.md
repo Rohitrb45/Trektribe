@@ -186,3 +186,12 @@ The app is a development milestone. Follow the README for a local run and inspec
 - Forum and chat HTTP migration, live OIDC, basemaps and physical-device validation remain pending.
 
 - Implementation `4ac97bd` passed both CI jobs, including the PostgreSQL pinned-route HTTP regression: https://github.com/Rohitrb45/Trektribe/actions/runs/40093092656.
+
+## Generated forum discussion lifecycle (2026-10-24)
+
+- Added six operations (31 total): capabilities, thread list/detail, creation, replies and close/reopen. Mobile thread/reply types now derive from the generated schema.
+- All 36 local tests, TypeScript, generated-code freshness and API/web builds passed. Creation-schema tests caught and corrected an initially missing UUID pattern.
+- Extended PostgreSQL HTTP coverage for duplicate thread/reply requests, reply pagination, closed-thread rejection and reopening. CI execution is recorded below.
+- Forum editing/removal/reporting/moderation and chat HTTP migration remain pending, as do live OIDC and device validation.
+
+- Android and iOS JavaScript exports also passed; these are not physical-device tests.

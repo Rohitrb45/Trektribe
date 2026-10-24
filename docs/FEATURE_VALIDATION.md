@@ -151,3 +151,7 @@ Run `npm run api:check`, `npm run typecheck` and `npm test`. With the documented
 ## Generated GPX and pinned-route client (2026-10-24)
 
 Run `npm run api:check`, `npm run typecheck` and `npm test`. PostgreSQL CI exercises HTTP import, outing creation, route replacement and pinned-route retrieval, including malformed GPX and unauthorized replacements. On a connected API, import a GPX trail, create an outing, replace the trail route, and verify **View outing route** still displays the original geometry. Real basemaps and device validation remain pending.
+
+## Generated forum discussion client (2026-10-24)
+
+Run `npm run api:check`, `npm run typecheck` and `npm test`. The PostgreSQL HTTP test covers duplicate creation/reply retries, reply pagination, closed-thread rejection and reopening. On a connected API, open Community discussions, create a thread, reply, close it and reopen it. Editing, removal, reporting and moderation remain on the existing request adapter. Live OIDC and native-device validation remain pending.

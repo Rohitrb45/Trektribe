@@ -1,3 +1,4 @@
+import type { components } from './api/schema';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withReportRatings, applyCommand, Command, createSeed, DEMO_USER, State } from '@trektribe/core';
 import { accessToken, authenticatedMode } from './session';
@@ -11,18 +12,18 @@ const client = createApiClient(apiUrl || '', () => authenticatedMode ? accessTok
 export const mode = authenticatedMode ? 'Connected' : apiUrl ? 'Connected demo' : 'Local demo';
 export function listBlocks(){return apiData(client.GET('/me/blocks'));}
 export function setBlock(id:string,blocked:boolean){return apiData(client.POST('/me/blocks/{id}',{params:{path:{id}},body:{blocked}}));}
-export type ForumThread={id:string;userId:string;author:string;title:string;body:string;closed:boolean;revision:number};
-export type ForumReply={id:string;userId:string;author:string;body:string;sequence:number;revision:number};
+export type ForumThread=components['schemas']['ForumThread'];
+export type ForumReply=components['schemas']['ForumReply'];
 export type ForumReport={id:number;reason:string;title:string;body:string;reportedTitle:string;reportedBody:string;removed:boolean};
-export function forumCapabilities(){return request<{moderator:boolean}>('/forum/capabilities');}
+export function forumCapabilities(){return apiData(client.GET('/forum/capabilities'));}
 export function changeForum(kind:'threads'|'replies',id:string,action:'edit'|'remove'|'report',data:unknown){return request(`/forum/${kind}/${id}/${action}`,data);}
 export function forumQueue(cursor=0){return request<{items:ForumReport[];nextCursor:number|null}>(`/forum/moderation?cursor=${cursor}`);}
 export function decideForum(id:number,action:'dismiss'|'remove',reason:string){return request(`/forum/moderation/${id}`,{action,reason});}
-export function forumThreads(cursor=0){return request<{items:ForumThread[];nextCursor:number|null}>(`/forum/threads?cursor=${cursor}`);}
-export function forumThread(id:string,cursor=0){return request<{thread:ForumThread;items:ForumReply[];nextCursor:number|null}>(`/forum/threads/${id}?cursor=${cursor}`);}
-export function createForumThread(data:{id:string;title:string;body:string}){return request<{id:string}>('/forum/threads',data);}
-export function replyToForum(id:string,data:{id:string;body:string}){return request(`/forum/threads/${id}/replies`,data);}
-export function closeForumThread(id:string,closed:boolean){return request(`/forum/threads/${id}/closed`,{closed});}
+export function forumThreads(cursor=0){return apiData(client.GET('/forum/threads',{params:{query:{cursor}}}));}
+export function forumThread(id:string,cursor=0){return apiData(client.GET('/forum/threads/{id}',{params:{path:{id},query:{cursor}}}));}
+export function createForumThread(data:{id:string;title:string;body:string}){return apiData(client.POST('/forum/threads',{body:data}));}
+export function replyToForum(id:string,data:{id:string;body:string}){return apiData(client.POST('/forum/threads/{id}/replies',{params:{path:{id}},body:data}));}
+export function closeForumThread(id:string,closed:boolean){return apiData(client.POST('/forum/threads/{id}/closed',{params:{path:{id}},body:{closed}}));}
 export async function createInvitation(tripId:string) {
   if(!apiUrl)throw new Error('Invitations require a connected PostgreSQL API.');
   return apiData(client.POST('/group-treks/{id}/invitations',{params:{path:{id:tripId}}}));
