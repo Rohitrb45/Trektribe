@@ -195,3 +195,5 @@ The app is a development milestone. Follow the README for a local run and inspec
 - Forum editing/removal/reporting/moderation and chat HTTP migration remain pending, as do live OIDC and device validation.
 
 - Android and iOS JavaScript exports also passed; these are not physical-device tests.
+
+- Implementation `f515bb3` passed both CI jobs, including PostgreSQL HTTP forum lifecycle checks: https://github.com/Rohitrb45/Trektribe/actions/runs/40095521852.
