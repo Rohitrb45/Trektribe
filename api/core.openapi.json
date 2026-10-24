@@ -3,7 +3,7 @@
   "info": {
     "title": "TrekTribe core resource API",
     "version": "0.1.0",
-    "description": "Core reads and mutations, blocking and invitations. Forum, routes and chat endpoints are not yet included. Server validation and authorization remain authoritative."
+    "description": "Core reads and mutations, blocking, invitations and GPX routes. Forum and chat endpoints remain outside this contract."
   },
   "servers": [
     {
@@ -1091,6 +1091,130 @@
           }
         }
       }
+    },
+    "/treks/import": {
+      "post": {
+        "operationId": "importGpx",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GpxImport"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutePublication"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/treks/{id}/route-versions": {
+      "post": {
+        "operationId": "replaceRoute",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GpxImport"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutePublication"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/group-treks/{id}/route": {
+      "get": {
+        "operationId": "getPinnedRoute",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinnedRoute"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1683,6 +1807,100 @@
         },
         "required": [
           "userId"
+        ],
+        "additionalProperties": false
+      },
+      "GpxImport": {
+        "type": "object",
+        "properties": {
+          "gpx": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000000
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "region": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 5000
+          },
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "Easy",
+              "Moderate",
+              "Hard"
+            ]
+          }
+        },
+        "required": [
+          "gpx",
+          "title",
+          "region",
+          "description",
+          "difficulty"
+        ],
+        "additionalProperties": false
+      },
+      "RoutePublication": {
+        "type": "object",
+        "properties": {
+          "trekId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "routeVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "hasElevation": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "trekId",
+          "routeVersionId",
+          "hasElevation"
+        ],
+        "additionalProperties": false
+      },
+      "PinnedRoute": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "coordinates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Coordinate"
+            }
+          },
+          "distanceKm": {
+            "type": "number"
+          },
+          "elevationM": {
+            "type": "number"
+          },
+          "hasElevation": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "coordinates",
+          "distanceKm",
+          "elevationM",
+          "hasElevation"
         ],
         "additionalProperties": false
       }

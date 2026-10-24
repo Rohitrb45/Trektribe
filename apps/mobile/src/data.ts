@@ -3,6 +3,7 @@ import { withReportRatings, applyCommand, Command, createSeed, DEMO_USER, State 
 import { accessToken, authenticatedMode } from './session';
 import { createApiClient, apiData } from './api/client';
 import { toTrek } from './api/treks';
+import { publishGpx, getPinnedRoute } from './api/routes';
 import { executeCommand } from './api/commands';
 const key = 'trektribe.demo.v1';
 export const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
@@ -31,10 +32,10 @@ export async function acceptInvitation(token:string) {
   return apiData(client.POST('/invitations/accept',{body:{token}}));
 }
 export function importGpx(body:{gpx:string;title:string;region:string;description:string;difficulty:string},trekId?:string){
-  return request<{trekId:string;routeVersionId:string}>(trekId?`/treks/${trekId}/route-versions`:'/treks/import',body);
+  return publishGpx(client,body,trekId);
 }
 export function pinnedRoute(tripId:string){
-  return request<{id:string;coordinates:[number,number][];distanceKm:number;elevationM:number;hasElevation:boolean}>(`/group-treks/${tripId}/route`);
+  return getPinnedRoute(client,tripId);
 }
 let queue: Promise<unknown> = Promise.resolve();
 async function request<T>(path: string, body?: unknown): Promise<T> {

@@ -1,6 +1,6 @@
 # Generated core API client
 
-`api/core.openapi.json` is the source contract for the core client. It covers profile, trail list/detail, outings, saved trails, feed pagination, comments, and all core command mutations (22 operations total, including blocking and invitations). It is a partial specification, not a complete description of every API route.
+`api/core.openapi.json` is the source contract for the core client. It covers profile, trail list/detail, outings, saved trails, feed pagination, comments, and all core command mutations (25 operations total, including blocking, invitations and GPX routes). It is a partial specification, not a complete description of every API route.
 
 The mobile OIDC resource loader and core command dispatch use `openapi-fetch` with generated types in `apps/mobile/src/api/schema.d.ts`. Local demo storage and connected-demo aggregate endpoints keep their existing behavior. Other requests continue through the existing adapter until their contracts are added.
 
@@ -16,9 +16,11 @@ Tokens are read for each request so sign-in state is not captured during module 
 
 ## Remaining coverage
 
-Forums/moderation, route import, and chat HTTP endpoints still need contract coverage and client migration. Socket.IO events need their own event contracts. Live OIDC and native-device behavior still require external validation.
+Forums/moderation and chat HTTP endpoints still need contract coverage and client migration. Socket.IO events need their own event contracts. Live OIDC and native-device behavior still require external validation.
 
 Generator and client documentation: https://openapi-ts.dev/introduction and https://openapi-ts.dev/openapi-fetch/.
 The nine added mutation request schemas are derived from server command validators. Tests compare them to those validators to catch drift. The command adapter preserves retry IDs and rejects unsupported profile-level or report-condition values before sending; server validation and authorization remain authoritative.
 
 Blocking and invitation calls now use the generated client. The PostgreSQL integration suite starts a real HTTP API to verify block/unblock, blocked invitation rejection, invitation creation, and repeat acceptance. Invitation tokens remain in request bodies, never query parameters.
+
+GPX import, route replacement and pinned outing routes use generated client calls. The GPX contract is checked against the server validator. Pinned geometry is validated as longitude/latitude pairs before rendering. The PostgreSQL HTTP test confirms that route replacement preserves an existing outing's pinned geometry and that unauthorized replacement is rejected.

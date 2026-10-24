@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { z, ZodError } from 'zod';
 import { DEMO_USER, DomainError, searchTreks } from '../../../packages/core/src/index';
 import { DemoStore, PostgresStore, Store } from './store';
-import { commandSchema, searchSchema, feedSchema } from './validation';
+import { commandSchema, searchSchema, feedSchema, routeSchema } from './validation';
 import { decodeCursor } from './feed';
 import { configuredVerifier } from './auth';
 import { RouteRepository } from './routes';
@@ -16,7 +16,6 @@ import { startRealtime } from './realtime';
 import { BlockRepository } from './blocks';
 import { ForumRepository, forumPage } from './forums';
 import { ForumManagement } from './forum-management';
-const routeSchema=z.object({gpx:z.string().min(1).max(1_000_000),title:z.string().trim().min(1).max(120),region:z.string().trim().min(1).max(120),description:z.string().max(5000),difficulty:z.enum(['Easy','Moderate','Hard'])}).strict();
 
 if(process.env.NODE_ENV==='production')throw new Error('Production startup remains disabled until all resource policies and external integrations are verified.');
 const oidc=process.env.AUTH_MODE==='oidc';

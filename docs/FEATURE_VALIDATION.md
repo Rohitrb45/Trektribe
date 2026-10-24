@@ -147,3 +147,7 @@ Run `npm run api:check`, `npm run typecheck` and `npm test`. The HTTP test now e
 ## Generated blocking and invitation clients (2026-10-23)
 
 Run `npm run api:check`, `npm run typecheck` and `npm test`. With the documented disposable PostgreSQL and Redis test services, run `npm run test:db` for HTTP round trips covering block/unblock, blocked invitation rejection, invitation creation and repeat acceptance. Local JSON mode returns the existing PostgreSQL-required error. Native-device and live OIDC validation are still pending.
+
+## Generated GPX and pinned-route client (2026-10-24)
+
+Run `npm run api:check`, `npm run typecheck` and `npm test`. PostgreSQL CI exercises HTTP import, outing creation, route replacement and pinned-route retrieval, including malformed GPX and unauthorized replacements. On a connected API, import a GPX trail, create an outing, replace the trail route, and verify **View outing route** still displays the original geometry. Real basemaps and device validation remain pending.

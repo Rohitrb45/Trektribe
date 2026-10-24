@@ -15,3 +15,5 @@ export const commandSchema=z.discriminatedUnion('type',[
 ]);
 export const searchSchema=z.object({q:z.string().max(100).default(''),difficulty:z.enum(['All','Easy','Moderate','Hard']).default('All'),lat:z.coerce.number().min(-90).max(90).optional(),lng:z.coerce.number().min(-180).max(180).optional(),radiusM:z.coerce.number().positive().max(100000).default(10000)}).strict().refine(v=>(v.lat===undefined)===(v.lng===undefined),'Provide both latitude and longitude.');
 export const feedSchema=z.object({limit:z.coerce.number().int().min(1).max(50).default(20),cursor:z.string().max(500).optional()}).strict();
+
+export const routeSchema=z.object({gpx:z.string().min(1).max(1_000_000),title:z.string().trim().min(1).max(120),region:z.string().trim().min(1).max(120),description:z.string().max(5000),difficulty:z.enum(['Easy','Moderate','Hard'])}).strict();

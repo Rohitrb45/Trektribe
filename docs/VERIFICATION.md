@@ -176,3 +176,11 @@ The app is a development milestone. Follow the README for a local run and inspec
 - Native-device and live OIDC verification remain pending. Forums, GPX/routes and chat HTTP endpoints remain to migrate.
 
 - Implementation `c34a09f` passed both CI jobs, including the new PostgreSQL HTTP round trip: https://github.com/Rohitrb45/Trektribe/actions/runs/39968230442.
+
+## Generated GPX and pinned-route client (2026-10-24)
+
+- Contract coverage increased to 25 operations: GPX import, replacement versions and pinned outing routes now use generated client calls.
+- GPX validation is shared with the API contract-drift test. Coordinate validation is reused for pinned routes.
+- All 34 tests, TypeScript, generated-code freshness, API/web builds and Android/iOS JavaScript exports passed. An initial API startup timeout passed on rerun without extending the deadline.
+- Extended the PostgreSQL HTTP test to cover import, immutable outing geometry after replacement, invalid GPX, and unauthorized replacement. Its CI result is recorded below.
+- Forum and chat HTTP migration, live OIDC, basemaps and physical-device validation remain pending.

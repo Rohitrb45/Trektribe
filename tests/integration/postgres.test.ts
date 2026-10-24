@@ -1,3 +1,4 @@
+import { publishGpx, getPinnedRoute } from '../../apps/mobile/src/api/routes';
 import { createApiClient, apiData, ApiError } from '../../apps/mobile/src/api/client';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -517,6 +518,21 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
         await assert.rejects(apiData(client.POST('/invitations/accept',{body:{token:incoming.token}})),(e:unknown)=>e instanceof ApiError&&e.status===403);
         await apiData(client.POST('/me/blocks/{id}',{params:{path:{id:other}},body:{blocked:false}}));
         assert.equal((await apiData(client.GET('/me/blocks'))).items.some(p=>p.id===other),false);
+        const gpx='<gpx><rte><rtept lat="30" lon="79"/><rtept lat="30.01" lon="79.01"/></rte></gpx>';
+        const metadata={title:'HTTP imported trail',region:'Test',description:'Client route test',difficulty:'Easy'};
+        const published=await publishGpx(client,{...metadata,gpx});
+        assert.equal(published.hasElevation,false);
+        const pinnedTrip=randomUUID();
+        await db.execute({type:'create-trip',id:pinnedTrip,trekId:published.trekId,title:'HTTP pinned trip',startsAt:'2099-01-01T00:00:00Z',timezone:'UTC',maxParticipants:4});
+        const original=await getPinnedRoute(client,pinnedTrip);
+        assert.equal(original.id,published.routeVersionId);
+        assert.deepEqual(original.coordinates,[[79,30],[79.01,30.01]]);
+        const replacement=await publishGpx(client,{...metadata,gpx:gpx.replaceAll('30.01','30.02')},published.trekId);
+        assert.notEqual(replacement.routeVersionId,published.routeVersionId);
+        assert.deepEqual(await getPinnedRoute(client,pinnedTrip),original);
+        await assert.rejects(publishGpx(client,{...metadata,gpx:'invalid'}),(e:unknown)=>e instanceof ApiError&&e.status===400);
+        const foreign=await new RouteRepository(db.pool).publish(other,gpx,metadata);
+        await assert.rejects(publishGpx(client,{...metadata,gpx},foreign.trekId),(e:unknown)=>e instanceof ApiError&&e.status===404);
         const issued=await apiData(client.POST('/group-treks/{id}/invitations',{params:{path:{id:ownId}}}));
         assert.match(issued.token,/^[A-Za-z0-9_-]{43}$/);assert.ok(Date.parse(issued.expiresAt)>Date.now());
         assert.deepEqual(await db.acceptInvite(issued.token,other),{tripId:ownId});
