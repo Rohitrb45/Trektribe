@@ -6,7 +6,7 @@ export function ForumActions({kind,item,userId,onChanged}:{kind:'threads'|'repli
  const [action,setAction]=useState<'edit'|'remove'|'report'|null>(null),[body,setBody]=useState(''),[title,setTitle]=useState(''),[reason,setReason]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  async function submit(){
    if(!action)return;setBusy(true);setError('');
-   try{await changeForum(kind,item.id,action,action==='report'?{reason}:action==='remove'?{revision:item.revision}:{revision:item.revision,body,...(kind==='threads'?{title}:{})});setAction(null);await onChanged();}
+   try{if(action==='report')await changeForum({kind,id:item.id,action,data:{reason}});else if(action==='remove')await changeForum({kind,id:item.id,action,data:{revision:item.revision}});else if(kind==='threads')await changeForum({kind,id:item.id,action,data:{revision:item.revision,body,title}});else await changeForum({kind,id:item.id,action,data:{revision:item.revision,body}});setAction(null);await onChanged();}
    catch(e){setError((e as Error).message);}finally{setBusy(false);}
  }
  return <View style={{gap:8}}>

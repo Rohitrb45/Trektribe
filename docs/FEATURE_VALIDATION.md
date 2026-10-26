@@ -155,3 +155,7 @@ Run `npm run api:check`, `npm run typecheck` and `npm test`. PostgreSQL CI exerc
 ## Generated forum discussion client (2026-10-24)
 
 Run `npm run api:check`, `npm run typecheck` and `npm test`. The PostgreSQL HTTP test covers duplicate creation/reply retries, reply pagination, closed-thread rejection and reopening. On a connected API, open Community discussions, create a thread, reply, close it and reopen it. Editing, removal, reporting and moderation remain on the existing request adapter. Live OIDC and native-device validation remain pending.
+
+## Generated forum management client (2026-10-24)
+
+Run `npm run api:check`, `npm run typecheck` and `npm test`. PostgreSQL CI checks revision conflicts, author edits/deletion, reporting, moderator-only queue access, removal decisions and repeat decisions. On a connected API, edit your thread/reply and report content; only administrator-provisioned moderators should see the moderation queue. Device and live OIDC verification remain pending.

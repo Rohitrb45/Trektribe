@@ -1,3 +1,4 @@
+import { submitForumChange, ForumChange } from './api/forum';
 import type { components } from './api/schema';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withReportRatings, applyCommand, Command, createSeed, DEMO_USER, State } from '@trektribe/core';
@@ -14,11 +15,11 @@ export function listBlocks(){return apiData(client.GET('/me/blocks'));}
 export function setBlock(id:string,blocked:boolean){return apiData(client.POST('/me/blocks/{id}',{params:{path:{id}},body:{blocked}}));}
 export type ForumThread=components['schemas']['ForumThread'];
 export type ForumReply=components['schemas']['ForumReply'];
-export type ForumReport={id:number;reason:string;title:string;body:string;reportedTitle:string;reportedBody:string;removed:boolean};
+export type ForumReport=components['schemas']['ForumReport'];
 export function forumCapabilities(){return apiData(client.GET('/forum/capabilities'));}
-export function changeForum(kind:'threads'|'replies',id:string,action:'edit'|'remove'|'report',data:unknown){return request(`/forum/${kind}/${id}/${action}`,data);}
-export function forumQueue(cursor=0){return request<{items:ForumReport[];nextCursor:number|null}>(`/forum/moderation?cursor=${cursor}`);}
-export function decideForum(id:number,action:'dismiss'|'remove',reason:string){return request(`/forum/moderation/${id}`,{action,reason});}
+export function changeForum(change:ForumChange){return submitForumChange(client,change);}
+export function forumQueue(cursor=0){return apiData(client.GET('/forum/moderation',{params:{query:{cursor}}}));}
+export function decideForum(id:number,action:'dismiss'|'remove',reason:string){return apiData(client.POST('/forum/moderation/{id}',{params:{path:{id}},body:{action,reason}}));}
 export function forumThreads(cursor=0){return apiData(client.GET('/forum/threads',{params:{query:{cursor}}}));}
 export function forumThread(id:string,cursor=0){return apiData(client.GET('/forum/threads/{id}',{params:{path:{id},query:{cursor}}}));}
 export function createForumThread(data:{id:string;title:string;body:string}){return apiData(client.POST('/forum/threads',{body:data}));}

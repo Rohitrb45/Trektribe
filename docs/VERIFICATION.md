@@ -197,3 +197,11 @@ The app is a development milestone. Follow the README for a local run and inspec
 - Android and iOS JavaScript exports also passed; these are not physical-device tests.
 
 - Implementation `f515bb3` passed both CI jobs, including PostgreSQL HTTP forum lifecycle checks: https://github.com/Rohitrb45/Trektribe/actions/runs/40095521852.
+
+## Generated forum management client (2026-10-26)
+
+- Extended the contract to 39 operations, adding typed thread/reply editing, removal, reporting, moderation queue and decisions.
+- Added server-schema drift and request serialization tests, plus PostgreSQL HTTP coverage for stale revisions, moderator authorization, repeated decisions and content removal.
+- All 38 local tests and API/web builds passed. The first suite run hit the existing API startup timeout; the full retry passed without changing the deadline or assertions.
+- Database execution is verified through CI; no local PostgreSQL service is available. Live OIDC and physical-device validation remain pending. Chat HTTP migration is next.
+- Generated-code freshness, TypeScript and Android/iOS JavaScript exports passed. Exports do not verify native-device behavior.
