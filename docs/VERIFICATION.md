@@ -227,3 +227,9 @@ The app is a development milestone. Follow the README for a local run and inspec
 - Web export passed. PostgreSQL/Redis CI evidence is recorded below.
 
 - Implementation `f1201ad` passed both CI jobs (check and database), including PostgreSQL/Redis realtime regressions: https://github.com/Rohitrb45/Trektribe/actions/runs/40533874925.
+
+## Native map adapter (2026-10-27)
+
+- Added @rnmapbox/maps 10.3.15, Expo plugin and platform-specific trail detail rendering. Web and unavailable native maps retain a labeled illustration.
+- TypeScript, web export and Android/iOS JavaScript exports passed. Native binary compilation, public-token tile rendering and physical-device validation are still pending; SDK compatibility is not yet established by these exports.
+- Setup and acceptance steps: NATIVE_MAPS.md. Offline recording and media remain pending.

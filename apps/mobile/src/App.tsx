@@ -1,3 +1,4 @@
+import RouteMap from "./RouteMap";
 import { Avatar, Button, Chip, Label, green, muted, s } from "./ui";
 import { ExploreScreen } from "./screens/ExploreScreen";
 import { CommunityScreen } from "./screens/CommunityScreen";
@@ -27,7 +28,7 @@ import {
   pinnedRoute,
   setBlock,
 } from "./data";
-import { Icon, MountainArt, RouteArt } from "./Art";
+import { Icon, MountainArt } from "./Art";
 import { AuthGate } from "./AuthGate";
 import { BlockSettings } from "./BlockSettings";
 import { Forum } from "./Forum";
@@ -478,10 +479,10 @@ function Application({ logout }: { logout?: () => Promise<void> }) {
                       />
                     )}
                     <View style={{ height: 250 }}>
-                      <RouteArt points={selected.route} />
+                      <RouteMap key={selected.id} points={selected.route} />
                     </View>
                     <Text style={s.bodySmall}>
-                      Live basemaps, offline downloads, and GPS recording are
+                      Offline downloads and GPS recording are
                       not connected in this build.
                     </Text>
                     <View style={[s.row, { flexWrap: "wrap" }]}>

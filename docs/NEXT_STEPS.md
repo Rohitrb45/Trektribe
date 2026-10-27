@@ -35,3 +35,5 @@ Acceptance: acknowledged messages survive reconnects; removed members lose acces
 Use Expo SQLite for sessions, points, sync cursors, and queued operations; AsyncStorage in this demo is not a GPS database. Download map resources through the provider SDK. Add numbered, checksummed track chunks and private-by-default sharing. Test permission changes, background lifecycle, screen lock, limited storage, and battery drain on real devices.
 
 Acceptance: a downloaded route can be inspected in airplane mode; supported recording interruptions preserve saved points; retrying a chunk never duplicates it.
+
+Native map adapter implementation (2026-10-27): trail details now use a Mapbox native component with a labeled fallback. Token configuration, native binary builds and device rendering remain pending. See [NATIVE_MAPS.md](NATIVE_MAPS.md).

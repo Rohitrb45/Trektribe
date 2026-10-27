@@ -167,3 +167,5 @@ Run `npm test` for request serialization and error handling. Run `npm run test:d
 ## Shared realtime contracts (2026-10-27)
 
 Run `npm run typecheck` to verify both ends of Socket.IO send, sync, presence, away and change notifications. `npm test` checks strict input validation. Existing PostgreSQL/Redis integration tests exercise retries, conflicting IDs, forged identity rejection, reconnect backfill, revoked membership and cross-server notifications. The contracts preserve existing wire payloads and draft behavior; real-device lifecycle checks remain pending.
+
+Native map adapter implementation (2026-10-27): trail details now use a Mapbox native component with a labeled fallback. Token configuration, native binary builds and device rendering remain pending. See [NATIVE_MAPS.md](NATIVE_MAPS.md).

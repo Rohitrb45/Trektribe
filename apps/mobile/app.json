@@ -19,7 +19,8 @@
       "name": "TrekTribe"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "@rnmapbox/maps"
     ]
   }
 }
