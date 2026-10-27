@@ -16,7 +16,7 @@ Tokens are read for each request so sign-in state is not captured during module 
 
 ## Remaining coverage
 
-Chat HTTP history and send endpoints now have generated client adapters. The conversation screen continues to use Socket.IO; these adapters do not replace realtime transport. Socket.IO events need their own event contracts. Live OIDC and native-device behavior still require external validation.
+Chat HTTP history and send endpoints now have generated client adapters. The conversation screen continues to use Socket.IO; these adapters do not replace realtime transport. Socket.IO now uses shared event and discriminated acknowledgment types from `packages/core/src/chat-events.ts`, with shared server input validators. These compile-time response types do not validate untrusted server responses at runtime. Live OIDC and native-device behavior still require external validation.
 
 Generator and client documentation: https://openapi-ts.dev/introduction and https://openapi-ts.dev/openapi-fetch/.
 The nine added mutation request schemas are derived from server command validators. Tests compare them to those validators to catch drift. The command adapter preserves retry IDs and rejects unsupported profile-level or report-condition values before sending; server validation and authorization remain authoritative.

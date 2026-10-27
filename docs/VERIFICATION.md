@@ -217,3 +217,11 @@ The app is a development milestone. Follow the README for a local run and inspec
 - Web export also passed; PostgreSQL CI execution is recorded below.
 
 - Implementation `cd9f9dc` passed both CI jobs (check and database), including PostgreSQL chat HTTP tests: https://github.com/Rohitrb45/Trektribe/actions/runs/40532462907.
+
+## Shared Socket.IO contracts (2026-10-27)
+
+- Added shared event types for send, sync, presence, away and change notifications, with discriminated success/error acknowledgments. Both mobile and API sockets use these contracts.
+- Extracted strict server input validators into the shared module; tests cover whitespace, length limits, forged identity, UUIDs and bounded numeric cursors. Existing wire payloads, retry IDs and membership checks are preserved.
+- TypeScript, all 41 local tests and the API build passed. An initial API startup timeout passed on full-suite retry without deadline changes.
+- Response types are compile-time checks, not runtime validation of arbitrary server responses. Live OIDC, device lifecycle and load-balancer validation remain pending.
+- Web export passed. PostgreSQL/Redis CI evidence is recorded below.

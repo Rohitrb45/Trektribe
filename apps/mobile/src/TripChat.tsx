@@ -1,3 +1,4 @@
+import type { ClientChatEvents, ServerChatEvents, ChatMessage as Message } from '../../../packages/core/src/chat-events';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Button, Modal, ScrollView, Text, TextInput, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -5,8 +6,7 @@ import { ChatDraft, ChatDrafts, draftKey } from './chat-drafts';
 import { io, Socket } from 'socket.io-client';
 import { apiUrl, makeId } from './data';
 import { accessToken, authenticatedMode } from './session';
-type Message={id:string;sequence:number;author:string;body:string};
-type Reply={ok:boolean;error?:string;items?:Message[];hasMore?:boolean;nextSequence?:number};
+type ChatSocket = Socket<ServerChatEvents,ClientChatEvents>;
 
 export function TripChat({tripId,userId,onClose}:{tripId:string;userId:string;onClose:()=>void}){
   return <Conversation key={`${apiUrl}:${userId}:${tripId}`} tripId={tripId} userId={userId} onClose={onClose}/>;
@@ -40,12 +40,12 @@ function Conversation({tripId,userId,onClose}:{tripId:string;userId:string;onClo
   }
   const [online,setOnline]=useState<{id:string;name:string}[]|null>(null);
   const [messages,setMessages]=useState<Message[]>([]),[body,setBody]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[connected,setConnected]=useState(false);
-  const socket=useRef<Socket|null>(null),offset=useRef(0);
+  const socket=useRef<ChatSocket|null>(null),offset=useRef(0);
   useEffect(()=>{
     let active=true,syncing=false,presenceBusy=false,foreground=AppState.currentState==='active';
     setOnline(null);
     offset.current=0;setMessages([]);setError('');
-    const client=io(apiUrl!,{autoConnect:false,auth:callback=>{try{callback({token:authenticatedMode?accessToken():'trektribe-local-demo'});}catch{setError('Session expired. Sign out and sign in again.');callback({token:''});}}});
+    const client:ChatSocket=io(apiUrl!,{autoConnect:false,auth:callback=>{try{callback({token:authenticatedMode?accessToken():'trektribe-local-demo'});}catch{setError('Session expired. Sign out and sign in again.');callback({token:''});}}});
     socket.current=client;
     const sync=async()=>{
       if(syncing||!client.connected)return;
@@ -53,7 +53,7 @@ function Conversation({tripId,userId,onClose}:{tripId:string;userId:string;onClo
       try{
         let more=true;
         while(more&&active){
-          const reply:Reply=await client.timeout(10000).emitWithAck('trip:sync',{tripId,after:offset.current});
+          const reply=await client.timeout(10000).emitWithAck('trip:sync',{tripId,after:offset.current});
           if(!active)return;
           if(!reply.ok){setMessages([]);offset.current=0;throw new Error(reply.error);}
           const batch=reply.items||[];
@@ -66,7 +66,7 @@ function Conversation({tripId,userId,onClose}:{tripId:string;userId:string;onClo
     const pulse=async()=>{
       if(!active||!foreground||!client.connected||presenceBusy)return;
       presenceBusy=true;
-      try{const reply:{ok:boolean;online?:{id:string;name:string}[]}=await client.timeout(5000).emitWithAck('trip:presence',{tripId});if(active&&foreground)setOnline(reply.ok?reply.online??[]:null);}
+      try{const reply=await client.timeout(5000).emitWithAck('trip:presence',{tripId});if(active&&foreground)setOnline(reply.ok?reply.online??[]:null);}
       catch{if(active)setOnline(null);}finally{presenceBusy=false;}
     };
     const appState=AppState.addEventListener('change',state=>{foreground=state==='active';if(foreground)void pulse();else{setOnline(null);client.emit('trip:away');}});
@@ -86,7 +86,7 @@ function Conversation({tripId,userId,onClose}:{tripId:string;userId:string;onClo
     try{
       // Persist the request ID before sending: an interrupted acknowledgment can retry safely.
       await saveDraft(draft);
-      const reply:Reply=await socket.current.timeout(10000).emitWithAck('trip:send',{tripId,id:draft.id,body:draft.body.trim()});
+      const reply=await socket.current.timeout(10000).emitWithAck('trip:send',{tripId,id:draft.id,body:draft.body.trim()});
       if(!reply.ok)throw new Error(reply.error);
       await drafts.acknowledge(draft.id);
       if(mounted.current){setBody('');currentDraft.current=null;setDraftStatus('Message sent; saved draft cleared.');setDraftError('');setError('');}

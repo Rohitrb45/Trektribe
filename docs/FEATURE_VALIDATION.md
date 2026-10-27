@@ -163,3 +163,7 @@ Run `npm run api:check`, `npm run typecheck` and `npm test`. PostgreSQL CI check
 ## Generated chat HTTP client (2026-10-27)
 
 Run `npm test` for request serialization and error handling. Run `npm run test:db` with the documented test database configuration for HTTP message persistence, duplicate/conflicting IDs and history pagination. Chat UI still uses Socket.IO; validate sending, reconnect backfill and saved draft retries through the connected conversation screen. Physical-device and live-provider verification remain pending.
+
+## Shared realtime contracts (2026-10-27)
+
+Run `npm run typecheck` to verify both ends of Socket.IO send, sync, presence, away and change notifications. `npm test` checks strict input validation. Existing PostgreSQL/Redis integration tests exercise retries, conflicting IDs, forged identity rejection, reconnect backfill, revoked membership and cross-server notifications. The contracts preserve existing wire payloads and draft behavior; real-device lifecycle checks remain pending.

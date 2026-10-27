@@ -1,3 +1,4 @@
+import { chatPresenceInput, chatSendInput, chatSyncInput, ClientChatEvents, ServerChatEvents } from '../../../packages/core/src/chat-events';
 import { Server as HttpServer } from 'node:http';
 import { Server, Socket } from 'socket.io';
 import { Pool } from 'pg';
@@ -21,11 +22,11 @@ export async function startRealtime(http:HttpServer,pool:Pool,authenticate:(auth
     if(!(await lease.query(`SELECT ${lock}(7421002) AS acquired`)).rows[0].acquired)throw new Error('Chat instances cannot mix local and Redis modes. Use Redis on all instances of a shared database.');
     if(options.redisUrl)fanout=await redisFanout(options.redisUrl,options.channel??'trektribe:chat:v1',enqueue);
   }catch(e){lease.removeListener('error',onLeaseError);lease.release(true);throw e;}
-  const io=new Server(http,{cors:{origin:origins},maxHttpBufferSize:16384});
+  const io=new Server<ClientChatEvents,ServerChatEvents>(http,{cors:{origin:origins},maxHttpBufferSize:16384});
   const repository=new MessageRepository(pool);
   const presence=fanout??new LocalPresence();
   const presenceTasks=new Set<Promise<void>>();
-  const actor=async(socket:Socket)=>{
+  const actor=async(socket:Socket<ClientChatEvents,ServerChatEvents>)=>{
     const token=z.string().min(1).max(16384).parse(socket.handshake.auth?.token);
     return authenticate(`Bearer ${token}`);
   };
@@ -43,7 +44,7 @@ export async function startRealtime(http:HttpServer,pool:Pool,authenticate:(auth
       if(task||leaseLost){ack({ok:false,error:'Presence unavailable.'});return;}
       schedule(async()=>{
         try{
-          const {tripId}=z.object({tripId:z.uuid()}).strict().parse(input),user=await actor(socket);
+          const {tripId}=chatPresenceInput.parse(input),user=await actor(socket);
           const member=await pool.query("SELECT 1 FROM group_trek_members WHERE trip_id=$1 AND user_id=$2 AND status='accepted'",[tripId,user]);
           if(!member.rowCount||!socket.connected)throw new Error('Not a member');
           if(activeRoom?.tripId!==tripId)await clearPresence();
@@ -66,7 +67,7 @@ export async function startRealtime(http:HttpServer,pool:Pool,authenticate:(auth
       if(typeof ack!=='function')return;
       try{
         const user=await actor(socket);
-        const data=z.object({tripId:z.uuid(),id:z.uuid(),body:z.string().trim().min(1).max(2000)}).strict().parse(input);
+        const data=chatSendInput.parse(input);
         const result=await repository.send(data.tripId,user,data.id,data.body);
         ack({ok:true,...result}); // Repository returns only after COMMIT.
       }catch(e){ack({ok:false,error:e instanceof DomainError?e.message:'Message rejected. Please reconnect and try again.'});}
@@ -75,7 +76,7 @@ export async function startRealtime(http:HttpServer,pool:Pool,authenticate:(auth
       if(typeof ack!=='function')return;
       try{
         const user=await actor(socket);
-        const data=z.object({tripId:z.uuid(),after:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)}).strict().parse(input);
+        const data=chatSyncInput.parse(input);
         ack({ok:true,...await repository.list(data.tripId,user,data.after)});
       }catch{ack({ok:false,error:'Conversation unavailable. Check your session and membership.'});}
     });
