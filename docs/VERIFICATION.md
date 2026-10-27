@@ -225,3 +225,5 @@ The app is a development milestone. Follow the README for a local run and inspec
 - TypeScript, all 41 local tests and the API build passed. An initial API startup timeout passed on full-suite retry without deadline changes.
 - Response types are compile-time checks, not runtime validation of arbitrary server responses. Live OIDC, device lifecycle and load-balancer validation remain pending.
 - Web export passed. PostgreSQL/Redis CI evidence is recorded below.
+
+- Implementation `f1201ad` passed both CI jobs (check and database), including PostgreSQL/Redis realtime regressions: https://github.com/Rohitrb45/Trektribe/actions/runs/40533874925.
