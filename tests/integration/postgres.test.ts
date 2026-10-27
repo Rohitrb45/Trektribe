@@ -1,3 +1,4 @@
+import { listMessages, sendMessage } from '../../apps/mobile/src/api/chat';
 import { submitForumChange } from '../../apps/mobile/src/api/forum';
 import { publishGpx, getPinnedRoute } from '../../apps/mobile/src/api/routes';
 import { createApiClient, apiData, ApiError } from '../../apps/mobile/src/api/client';
@@ -525,6 +526,18 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
         assert.equal(published.hasElevation,false);
         const pinnedTrip=randomUUID();
         await db.execute({type:'create-trip',id:pinnedTrip,trekId:published.trekId,title:'HTTP pinned trip',startsAt:'2099-01-01T00:00:00Z',timezone:'UTC',maxParticipants:4});
+        const messageId=randomUUID();
+        const receipt=await sendMessage(client,pinnedTrip,{id:messageId,body:'HTTP conversation'});
+        assert.deepEqual(await sendMessage(client,pinnedTrip,{id:messageId,body:'HTTP conversation'}),receipt);
+        await assert.rejects(sendMessage(client,pinnedTrip,{id:messageId,body:'Changed'}),(e:unknown)=>e instanceof ApiError&&e.status===409);
+        await sendMessage(client,pinnedTrip,{id:randomUUID(),body:'Next message'});
+        const page=await listMessages(client,pinnedTrip,0,1);
+        assert.equal(page.items[0].id,messageId);assert.equal(page.hasMore,true);
+        const next=await listMessages(client,pinnedTrip,page.nextSequence,1);
+        assert.equal(next.items[0].body,'Next message');assert.equal(next.hasMore,false);
+        assert.equal((await listMessages(client,pinnedTrip,next.nextSequence)).items.length,0);
+        await assert.rejects(listMessages(client,otherId),(e:unknown)=>e instanceof ApiError&&e.status===404);
+        await assert.rejects(sendMessage(client,pinnedTrip,{id:randomUUID(),body:' '}),(e:unknown)=>e instanceof ApiError&&e.status===400);
         const original=await getPinnedRoute(client,pinnedTrip);
         assert.equal(original.id,published.routeVersionId);
         assert.deepEqual(original.coordinates,[[79,30],[79.01,30.01]]);

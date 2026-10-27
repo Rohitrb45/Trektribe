@@ -207,3 +207,11 @@ The app is a development milestone. Follow the README for a local run and inspec
 - Generated-code freshness, TypeScript and Android/iOS JavaScript exports passed. Exports do not verify native-device behavior.
 
 - Implementation `18a3f27` passed both CI jobs (check and database), including the PostgreSQL forum management HTTP regression: https://github.com/Rohitrb45/Trektribe/actions/runs/40344665740.
+
+## Generated chat HTTP client (2026-10-27)
+
+- Added typed history/send adapters and contract schemas (41 operations total). The chat screen retains Socket.IO transport; no automatic fallback or retry was introduced.
+- Tests cover request IDs, fresh credentials, pagination and HTTP errors. PostgreSQL HTTP regression coverage includes duplicate/conflicting sends, history cursors, nonmember access and invalid bodies.
+- All 40 local tests, generated-schema freshness, TypeScript and the API build passed. The initial API startup timeout passed on full-suite retry without modifying its deadline.
+- Physical-device and live OIDC checks remain pending; this change adds HTTP coverage, not native validation. Socket.IO event contracts remain next.
+- Web export also passed; PostgreSQL CI execution is recorded below.

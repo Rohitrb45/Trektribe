@@ -560,6 +560,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/group-treks/{id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMessages"];
+        put?: never;
+        post: operations["sendMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -813,6 +829,32 @@ export interface components {
             reportedTitle: string;
             reportedBody: string;
             removed: boolean;
+        };
+        ChatSend: {
+            /** Format: uuid */
+            id: string;
+            body: string;
+        };
+        ChatReceipt: {
+            /** Format: uuid */
+            id: string;
+            sequence: number;
+        };
+        ChatMessage: {
+            /** Format: uuid */
+            id: string;
+            sequence: number;
+            /** Format: uuid */
+            userId: string;
+            author: string;
+            body: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ChatPage: {
+            items: components["schemas"]["ChatMessage"][];
+            hasMore: boolean;
+            nextSequence: number;
         };
     };
     responses: never;
@@ -2181,6 +2223,75 @@ export interface operations {
                     "application/json": {
                         resolved: boolean;
                     };
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listMessages: {
+        parameters: {
+            query?: {
+                after?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatPage"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    sendMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatSend"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatReceipt"];
                 };
             };
             /** @description API error */

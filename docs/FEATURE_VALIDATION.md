@@ -159,3 +159,7 @@ Run `npm run api:check`, `npm run typecheck` and `npm test`. The PostgreSQL HTTP
 ## Generated forum management client (2026-10-24)
 
 Run `npm run api:check`, `npm run typecheck` and `npm test`. PostgreSQL CI checks revision conflicts, author edits/deletion, reporting, moderator-only queue access, removal decisions and repeat decisions. On a connected API, edit your thread/reply and report content; only administrator-provisioned moderators should see the moderation queue. Device and live OIDC verification remain pending.
+
+## Generated chat HTTP client (2026-10-27)
+
+Run `npm test` for request serialization and error handling. Run `npm run test:db` with the documented test database configuration for HTTP message persistence, duplicate/conflicting IDs and history pagination. Chat UI still uses Socket.IO; validate sending, reconnect backfill and saved draft retries through the connected conversation screen. Physical-device and live-provider verification remain pending.
