@@ -20,9 +20,66 @@ Apply migrations using `DATABASE_URL`, `DEMO_MODE=true`, and `npm run db:migrate
 
 Socket events are `trip:send` (tripId, id, body) and `trip:sync` (tripId, after). Authentication is checked on connection and each event. Success acknowledgments follow the database commit. Each message receives a per-outing sequence and an outbox row in the same transaction. Notifications prompt synchronization; PostgreSQL history is authoritative.
 
-The current dispatcher supports one API process. It sends only change notifications to currently accepted members; disconnected clients backfill on reconnect. Redis fan-out, presence, persistent unsent drafts, and multi-process delivery are not implemented. Unsent drafts can be lost when the app closes. Device lifecycle and live OIDC redirects remain unverified.
+The dispatcher sends only change notifications to currently accepted members; disconnected clients backfill on reconnect. Without Redis, only one dispatcher may use a database. With Redis configured consistently on all API instances, independent dispatchers claim outbox rows and publish hints to every instance, which rechecks authentication and membership locally. Conversation presence and device-local unsent chat drafts are implemented. Draft storage failures are surfaced in the composer. Device lifecycle and live OIDC redirects remain unverified.
 
-Run `npm test` for local checks and `npm run test:db` with `TEST_DATABASE_URL` for real PostGIS/socket tests. The database suite creates and drops its own test database. See `VERIFICATION.md` for recorded results.
+Run `npm test` for local checks and `npm run test:db` with `TEST_DATABASE_URL` and `TEST_REDIS_URL` for real PostGIS/Redis/socket tests. Use disposable services: the database suite creates and drops its own database, and the Redis test creates/removes a temporary ACL user and isolated channel. The Redis test connection needs ACL administration privileges. See `VERIFICATION.md` for recorded results.
+
+## Saved chat drafts
+
+Open an outing conversation, type a message, and wait for **Draft saved on this device**. Close and reopen the conversation, or reload the app: the text should return. The app saves changes as you type and waits for pending writes before closing the conversation normally. Drafts are scoped to the API URL, account UUID and outing UUID. Another account or outing must not show the same draft.
+
+Sending saves the message ID before contacting the server. After an unconfirmed send, reopening and sending the unchanged draft reuses that ID; the server's existing idempotency check prevents a duplicate message. Changing the message text creates a new ID and represents a new submission. Confirmed sends clear the matching draft. **Discard draft** removes it explicitly. Storage errors retain text on screen and offer retry/discard controls; sending stops if its draft cannot first be saved.
+
+Drafts are local AsyncStorage data, not encrypted secure-store data or a cloud backup. They remain across sign-out but are loaded only for the same account/API/outing. Clearing application/browser storage removes them. Drafts are not automatically sent after reconnection. Concurrent browser tabs editing the same draft are not coordinated; use one conversation editor per account/outing. A force-close before an asynchronous save finishes can lose the latest keystrokes. Device crash/background durability and manual multi-account UI behavior still require validation. Forum drafts remain temporary.
+
+No server migration or additional dependency is needed. Automated tests cover save ordering, reopening, scope isolation, late acknowledgments, failed storage retries and malformed draft handling.
+
+## Chat across API instances
+
+### Active conversation participants
+
+Open the same outing conversation in two accepted accounts, optionally connected to different API instances. **Active in this conversation** lists unique participant names, including yourself. A foreground conversation sends a heartbeat every 10 seconds. Each device has its own 30-second lease; closing one device must not hide another active device for the same account. Backgrounding/closing the conversation sends cleanup when possible. If an app or API crashes, the lease expires instead. Presence is approximate and updates on the next heartbeat, not an exact measure of whether someone is reading.
+
+Blocked people are hidden in both directions. Pending participants and nonmembers cannot read or publish presence. Leaving an outing removes access on the next request, even if a Redis session entry has not yet expired. On a Redis error the UI shows **Active participants unavailable**; message history and sending remain available through PostgreSQL.
+
+Local single-instance APIs use an in-memory presence registry. Redis-backed instances use expiring sorted-set entries under `<CHAT_REDIS_CHANNEL>:presence:<tripId>`, containing user UUIDs and socket IDs, not names or message bodies. Configure Redis ACLs to allow `EVAL`, `TIME`, `ZADD`, `ZRANGE`, `ZREM`, `ZREMRANGEBYSCORE`, and `PEXPIRE` on that key prefix, in addition to the existing Pub/Sub permissions. All instances must use the same Redis database and channel for shared presence. No PostgreSQL migration is needed.
+
+Automated tests cover multiple servers/devices, blocked users, lost membership, stale timestamps, and Redis permission failure. Foreground/background behavior on physical devices remains pending. There is no global last-seen history, typing indicator, or read receipt.
+
+### Server configuration
+
+Set `DATABASE_URL`, `REDIS_URL` (for example `redis://localhost:6379`), and the same `CHAT_REDIS_CHANNEL` on every instance serving the same app. Use a different channel per environment; Redis Pub/Sub is not isolated by database number. Backend variables must be exported into the process environment; `.env` is not loaded automatically. Redis is optional for single-instance development. Redis configuration failures stop startup rather than silently falling back to local delivery. All instances sharing a database must use the same mode; a PostgreSQL advisory lock rejects mixed modes or multiple local dispatchers.
+
+Start two APIs on different ports, connect accepted outing members to each, and send a message. Both clients should refresh. Nonmembers must receive neither history nor conversation-change hints. Stop one API; the other should continue to serve history and publish notifications. Redis notifications carry only outing IDs; presence keys also contain expiring user/session identifiers, never message bodies. PostgreSQL remains authoritative for membership and replay.
+
+If Redis publishing fails, message acknowledgments still follow the PostgreSQL commit, and undelivered outbox rows retry. Successful publication means Redis accepted the hint, not that every client received it. Offline subscribers, transient notification errors, or a full bounded notification buffer may miss hints; the app's five-second sync and reconnect backfill recover history. Publication timeouts may produce duplicate hints, which only trigger synchronization. See the [Redis Pub/Sub delivery documentation](https://redis.io/docs/latest/develop/use-cases/pub-sub/nodejs/).
+
+Following the [Socket.IO multi-node guidance](https://socket.io/docs/v4/using-multiple-nodes/), when putting Socket.IO behind a load balancer, configure sticky sessions for its default polling transport, or deliberately configure WebSocket-only transport throughout. This implementation uses Redis for application notifications, not a shared Socket.IO transport session. Cluster/sharded Pub/Sub and load-balancer/device testing remain pending. A lost PostgreSQL coordination connection disables notifications on that instance and requires an API restart. Production startup remains disabled.
+## Community discussions (PostgreSQL API)
+
+### Editing, deletion and moderation
+
+Apply migration 011 with `npm run db:migrate`. On your own thread or reply, use **Edit**, then **Save changes**. Editing uses a revision check: if another session saves first, refresh before retrying. Replies cannot be edited in closed discussions. Use **Delete → Confirm deletion** to hide your content; deleting a discussion also hides its replies. Retained database records and report snapshots are available for moderation review; deletion is not permanent erasure and cannot be undone through the app.
+
+Use **Report content** and provide a reason. Duplicate submissions by the same person create only one open report per target. A new report can be filed after the previous one is resolved. Blocked or removed content cannot be reported through these endpoints.
+
+Moderator access is granted by a database administrator, never by a profile field or client request. After obtaining the intended account's UUID from `/v1/me`, an administrator can run `INSERT INTO forum_moderators(user_id) VALUES ('<account-uuid>') ON CONFLICT DO NOTHING;`. Revoke access with `DELETE FROM forum_moderators WHERE user_id='<account-uuid>';`. No moderator is assigned automatically by migrations or demo seeding. Use distinct authenticated accounts for multi-user manual validation.
+
+Reopen Community discussions after granting access. **Moderation reports** shows reported snapshots alongside current content. Enter a decision reason, then dismiss the report or remove the reported content. Decisions are recorded in `forum_moderation_actions`. Ordinary users cannot access the queue or submit decisions, even by calling the API. Revocation is checked on every queue/action request. Removed content cannot be restored by editing, reopening or retrying its original creation request.
+
+Validation: try modifying another person's reply, save conflicting edits from two sessions, report content then edit it, remove it as moderator, and verify it disappears after refresh. Existing screens must be refreshed to discard already loaded content. Moderator tools deliberately have access to reported content regardless of personal blocks. Bulk actions, appeals, restoration, notifications and permanent-erasure workflows remain pending.
+
+### Creating and browsing
+
+Apply migration 010 with `npm run db:migrate`, connect the app to the API, and open **Community → Community discussions**.
+
+1. Publish a title and opening message. Close/reopen the screen or restart the API; the discussion must remain.
+2. Open it, send a reply, and use **Refresh discussion** to reload. Use **More discussions/replies** when a page contains more than 20 items.
+3. As the thread author, close the discussion. New replies must fail, while existing replies remain readable. Reopen it to allow replies again. Other accounts cannot close or reopen your discussion.
+4. Block another participant using the existing report-author control. Refresh discussions: their threads and replies disappear. A blocked user cannot reply to your thread, even by retrying an earlier submission.
+
+Discussion titles are limited to 120 characters, opening messages to 5,000, and replies to 2,000. Retrying the same creation request ID and unchanged content creates only one record; retries after editing or removal may be rejected and never restore content. Threads are newest-first; replies are oldest-first. The app supports manual refresh rather than realtime forum notifications. Drafts are kept only while the screen is open. Local-only mode does not show discussions; a connected JSON API returns an explanatory PostgreSQL requirement error.
+
 ## Outing cohosts
 
 For PostgreSQL, run `npm run db:migrate` to apply migration 009. Cohost controls also work in the local demo.
@@ -53,3 +110,62 @@ Apply migrations with `npm run db:migrate` before starting the API. In Community
 With two accounts, verify both feeds hide the other's reports and comments; likes, comments, new joins, approvals and invitation redemption fail between blocked accounts. Unblocking one side does not override a block made by the other account. Existing shared outings and rosters remain accessible so participants can leave; chat history fetched from the server excludes blocked authors. Shared group messages can still be sent to other participants. Public trail geometry remains accessible.
 
 Refresh other open app sessions and reopen conversations after changing blocks: already downloaded content is not remotely erased. The database integration suite exercises these rules without requiring an external identity provider. Live two-account sign-in and physical-device checks remain pending.
+
+## URL navigation (2026-10-22)
+
+Run `npm run web`. Explore uses `/`, Community `/community`, Trips `/trips`, and Profile `/profile`.
+
+1. Switch tabs and use browser Back/Forward; the address and selected screen should agree.
+2. Search/filter Explore, visit Profile and return. Filters should be retained. Save a trail, switch tabs and return; the saved state should be current.
+3. Open a trail. Copy its `/trails/<id>` address into another tab or reload; the matching detail dialog should open after loading. Close returns to Explore. A missing trail or unknown path shows an unavailable-page message with a return button.
+4. Open an outing's pinned route; it must still show the outing version, even when the trail's latest geometry has changed.
+5. Open a conversation, enter a draft, then navigate Back to leave Trips. Reopen the conversation and verify draft recovery and reconnection.
+
+Web hosting must rewrite application paths to `index.html` (SPA fallback); API endpoints must keep their own routing. The `/auth` route is reserved for AuthSession callbacks. OIDC callback verification still needs a real provider. Native `trektribe://trails/<id>` links require rebuilding the app after the Router plugin installation; cold/warm links and Android Back still need physical-device validation. Native export checks only validate bundling.
+## Extracted feature screens (2026-10-22)
+
+The main screens now live in `apps/mobile/src/screens/`, with shared controls and styles in `apps/mobile/src/ui.tsx`. The existing application shell owns authentication, data mutations, dialogs and URL selection. This refactor does not add a new user flow.
+
+Regression checks in Local demo mode:
+
+1. Edit your display name in Profile and verify it updates after saving.
+2. Save a trail in Explore, then use Profile's **Explore saved trails** action. Confirm search is cleared and the saved trail is visible.
+3. Like a Community report, publish a text story, and confirm both changes appear.
+4. In Trips, create an outing with a future date and verify it appears in the list.
+5. Repeat the URL-navigation checks above, including retained filters after Back/Forward.
+
+Connected-mode invitations, pinned routes, chat and blocking still use the same application callbacks. Physical-device verification remains deferred.
+## Generated client, first stage (2026-10-23)
+
+Run `npm run api:check`, `npm run typecheck`, and `npm test`. The API test starts a temporary local API and exercises generated-client profile/trail/outing/feed/comment reads and save/unsave/like actions. Client tests cover current-token lookup, query encoding, false request values, API errors and coordinate validation.
+
+In Local demo mode, repeat the extracted-screen smoke checks above. Live OIDC resource loading requires your future provider setup; it is not verified simply by running `npm run web`. See `docs/API_CLIENT.md` for scope and regeneration instructions.
+## Generated core mutations (2026-10-23)
+
+Run `npm run api:check`, `npm run typecheck` and `npm test`. The HTTP test now exercises the command adapter for profile edits, idempotent reports, comments, outing creation/cancellation, join/leave, approvals, and cohost grant/revoke. It also checks that cancelling another organizer's outing is rejected. Mutation contracts are compared with server validators. Local-demo commands still use local storage; live OIDC validation remains pending.
+
+## Generated blocking and invitation clients (2026-10-23)
+
+Run `npm run api:check`, `npm run typecheck` and `npm test`. With the documented disposable PostgreSQL and Redis test services, run `npm run test:db` for HTTP round trips covering block/unblock, blocked invitation rejection, invitation creation and repeat acceptance. Local JSON mode returns the existing PostgreSQL-required error. Native-device and live OIDC validation are still pending.
+
+## Generated GPX and pinned-route client (2026-10-24)
+
+Run `npm run api:check`, `npm run typecheck` and `npm test`. PostgreSQL CI exercises HTTP import, outing creation, route replacement and pinned-route retrieval, including malformed GPX and unauthorized replacements. On a connected API, import a GPX trail, create an outing, replace the trail route, and verify **View outing route** still displays the original geometry. Real basemaps and device validation remain pending.
+
+## Generated forum discussion client (2026-10-24)
+
+Run `npm run api:check`, `npm run typecheck` and `npm test`. The PostgreSQL HTTP test covers duplicate creation/reply retries, reply pagination, closed-thread rejection and reopening. On a connected API, open Community discussions, create a thread, reply, close it and reopen it. Editing, removal, reporting and moderation remain on the existing request adapter. Live OIDC and native-device validation remain pending.
+
+## Generated forum management client (2026-10-24)
+
+Run `npm run api:check`, `npm run typecheck` and `npm test`. PostgreSQL CI checks revision conflicts, author edits/deletion, reporting, moderator-only queue access, removal decisions and repeat decisions. On a connected API, edit your thread/reply and report content; only administrator-provisioned moderators should see the moderation queue. Device and live OIDC verification remain pending.
+
+## Generated chat HTTP client (2026-10-27)
+
+Run `npm test` for request serialization and error handling. Run `npm run test:db` with the documented test database configuration for HTTP message persistence, duplicate/conflicting IDs and history pagination. Chat UI still uses Socket.IO; validate sending, reconnect backfill and saved draft retries through the connected conversation screen. Physical-device and live-provider verification remain pending.
+
+## Shared realtime contracts (2026-10-27)
+
+Run `npm run typecheck` to verify both ends of Socket.IO send, sync, presence, away and change notifications. `npm test` checks strict input validation. Existing PostgreSQL/Redis integration tests exercise retries, conflicting IDs, forged identity rejection, reconnect backfill, revoked membership and cross-server notifications. The contracts preserve existing wire payloads and draft behavior; real-device lifecycle checks remain pending.
+
+Native map adapter implementation (2026-10-27): trail details now use a Mapbox native component with a labeled fallback. Token configuration, native binary builds and device rendering remain pending. See [NATIVE_MAPS.md](NATIVE_MAPS.md).

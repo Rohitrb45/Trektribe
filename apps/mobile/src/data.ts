@@ -1,24 +1,43 @@
+import { submitForumChange, ForumChange } from './api/forum';
+import type { components } from './api/schema';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { withReportRatings, applyCommand, Command, createSeed, DEMO_USER, State, Post, Comment, Profile, Trip, Trek } from '@trektribe/core';
+import { withReportRatings, applyCommand, Command, createSeed, DEMO_USER, State } from '@trektribe/core';
 import { accessToken, authenticatedMode } from './session';
+import { createApiClient, apiData } from './api/client';
+import { toTrek } from './api/treks';
+import { publishGpx, getPinnedRoute } from './api/routes';
+import { executeCommand } from './api/commands';
 const key = 'trektribe.demo.v1';
 export const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
+const client = createApiClient(apiUrl || '', () => authenticatedMode ? accessToken() : 'trektribe-local-demo');
 export const mode = authenticatedMode ? 'Connected' : apiUrl ? 'Connected demo' : 'Local demo';
-export function listBlocks(){return request<{items:{id:string;name:string}[]}>('/me/blocks');}
-export function setBlock(id:string,blocked:boolean){return request(`/me/blocks/${id}`,{blocked});}
+export function listBlocks(){return apiData(client.GET('/me/blocks'));}
+export function setBlock(id:string,blocked:boolean){return apiData(client.POST('/me/blocks/{id}',{params:{path:{id}},body:{blocked}}));}
+export type ForumThread=components['schemas']['ForumThread'];
+export type ForumReply=components['schemas']['ForumReply'];
+export type ForumReport=components['schemas']['ForumReport'];
+export function forumCapabilities(){return apiData(client.GET('/forum/capabilities'));}
+export function changeForum(change:ForumChange){return submitForumChange(client,change);}
+export function forumQueue(cursor=0){return apiData(client.GET('/forum/moderation',{params:{query:{cursor}}}));}
+export function decideForum(id:number,action:'dismiss'|'remove',reason:string){return apiData(client.POST('/forum/moderation/{id}',{params:{path:{id}},body:{action,reason}}));}
+export function forumThreads(cursor=0){return apiData(client.GET('/forum/threads',{params:{query:{cursor}}}));}
+export function forumThread(id:string,cursor=0){return apiData(client.GET('/forum/threads/{id}',{params:{path:{id},query:{cursor}}}));}
+export function createForumThread(data:{id:string;title:string;body:string}){return apiData(client.POST('/forum/threads',{body:data}));}
+export function replyToForum(id:string,data:{id:string;body:string}){return apiData(client.POST('/forum/threads/{id}/replies',{params:{path:{id}},body:data}));}
+export function closeForumThread(id:string,closed:boolean){return apiData(client.POST('/forum/threads/{id}/closed',{params:{path:{id}},body:{closed}}));}
 export async function createInvitation(tripId:string) {
   if(!apiUrl)throw new Error('Invitations require a connected PostgreSQL API.');
-  return request<{token:string;expiresAt:string}>(`/group-treks/${tripId}/invitations`,{});
+  return apiData(client.POST('/group-treks/{id}/invitations',{params:{path:{id:tripId}}}));
 }
 export async function acceptInvitation(token:string) {
   if(!apiUrl)throw new Error('Invitations require a connected PostgreSQL API.');
-  return request<{tripId:string}>('/invitations/accept',{token});
+  return apiData(client.POST('/invitations/accept',{body:{token}}));
 }
 export function importGpx(body:{gpx:string;title:string;region:string;description:string;difficulty:string},trekId?:string){
-  return request<{trekId:string;routeVersionId:string}>(trekId?`/treks/${trekId}/route-versions`:'/treks/import',body);
+  return publishGpx(client,body,trekId);
 }
 export function pinnedRoute(tripId:string){
-  return request<{id:string;coordinates:[number,number][];distanceKm:number;elevationM:number;hasElevation:boolean}>(`/group-treks/${tripId}/route`);
+  return getPinnedRoute(client,tripId);
 }
 let queue: Promise<unknown> = Promise.resolve();
 async function request<T>(path: string, body?: unknown): Promise<T> {
@@ -35,11 +54,11 @@ export async function loadState(): Promise<State> {
   if (authenticatedMode) {
     if (!apiUrl) throw new Error('The API URL is missing.');
     const [profile, treks, trips, saved, page] = await Promise.all([
-      request<Profile>('/me'), request<{items:Trek[]}>('/treks'), request<{items:Trip[]}>('/group-treks'),
-      request<{items:string[]}>('/me/saved-treks'), request<{items:Post[]}>('/feed?limit=50'),
+      apiData(client.GET('/me')), apiData(client.GET('/treks')), apiData(client.GET('/group-treks')),
+      apiData(client.GET('/me/saved-treks')), apiData(client.GET('/feed', {params:{query:{limit:50}}})),
     ]);
-    const comments = await Promise.all(page.items.map(p=>request<{items:Comment[]}>(`/posts/${p.id}/comments`)));
-    return {version:1,profile,treks:treks.items,trips:trips.items,saved:{[profile.id]:saved.items},posts:page.items,comments:comments.flatMap(p=>p.items)};
+    const comments = await Promise.all(page.items.map(p=>apiData(client.GET('/posts/{id}/comments', {params:{path:{id:p.id}}}))));
+    return {version:1,profile,treks:treks.items.map(toTrek),trips:trips.items,saved:{[profile.id]:saved.items},posts:page.items,comments:comments.flatMap(p=>p.items)};
   }
   if (apiUrl) return request('/demo/state');
   const raw = await AsyncStorage.getItem(key);
@@ -51,18 +70,7 @@ export async function loadState(): Promise<State> {
 export function dispatch(command: Command): Promise<State> {
   const result = queue.then(async () => {
     if (authenticatedMode) {
-      switch(command.type) {
-        case 'profile': { const {type,...body}=command;await request('/me',body);break; }
-        case 'create-trip': { const {type,...body}=command;await request('/group-treks',body);break; }
-        case 'cancel-trip': await request(`/group-treks/${command.tripId}/cancel`,{});break;
-        case 'cohost': await request(`/group-treks/${command.tripId}/cohosts`,{userId:command.userId,enabled:command.enabled});break;
-        case 'save': await request(`/me/saved-treks/${command.trekId}`,{saved:command.saved});break;
-        case 'like': await request(`/posts/${command.postId}/like`,{liked:command.liked});break;
-        case 'post': { const {type,...body}=command;await request('/posts',body);break; }
-        case 'comment': await request(`/posts/${command.postId}/comments`,{id:command.id,body:command.body});break;
-        case 'join': case 'leave': await request(`/group-treks/${command.tripId}/${command.type}`,{});break;
-        case 'approve': await request(`/group-treks/${command.tripId}/approve`,{userId:command.userId});break;
-      }
+      await executeCommand(client, command);
       return loadState();
     }
     if (apiUrl) return request<State>('/demo/commands', command);

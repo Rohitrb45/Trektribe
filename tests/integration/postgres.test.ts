@@ -1,7 +1,11 @@
+import { listMessages, sendMessage } from '../../apps/mobile/src/api/chat';
+import { submitForumChange } from '../../apps/mobile/src/api/forum';
+import { publishGpx, getPinnedRoute } from '../../apps/mobile/src/api/routes';
+import { createApiClient, apiData, ApiError } from '../../apps/mobile/src/api/client';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Pool } from 'pg';
 import { PostgresStore } from '../../apps/api/src/store';
@@ -9,10 +13,13 @@ import { decodeCursor } from '../../apps/api/src/feed';
 import { RouteRepository } from '../../apps/api/src/routes';
 import { MessageRepository } from '../../apps/api/src/messages';
 import { BlockRepository } from '../../apps/api/src/blocks';
+import { ForumRepository } from '../../apps/api/src/forums';
+import { ForumManagement } from '../../apps/api/src/forum-management';
 import { startRealtime } from '../../apps/api/src/realtime';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { io } from 'socket.io-client';
+import { createClient } from 'redis';
 import { createSeed, DEMO_USER, DomainError } from '../../packages/core/src/index';
 
 const exec = promisify(execFile);
@@ -41,7 +48,7 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await db.pool.query('UPDATE users SET name=$1 WHERE id=$2', ['Preserved name', DEMO_USER]);
       await migrate();
       assert.equal((await db.pool.query('SELECT name FROM users WHERE id=$1', [DEMO_USER])).rows[0].name, 'Preserved name');
-      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 9);
+      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 11);
       const state = await db.read();
       assert.equal(state.treks.length, seed.treks.length);
       assert.deepEqual(state.treks[0].coordinates, seed.treks[0].coordinates);
@@ -152,6 +159,98 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       }finally{await competitor.close();}
     });
 
+    await t.test('forums persist, page visible content, enforce ownership and survive duplicate retries', async () => {
+      const a=await db.identify({issuer:'https://forum.example',subject:'a'}),b=await db.identify({issuer:'https://forum.example',subject:'b'});
+      const forums=new ForumRepository(db.pool),blocks=new BlockRepository(db.pool);
+      const thread={id:randomUUID(),title:'Trail advice',body:'What should we pack?'};
+      await Promise.all([forums.create(a,thread),forums.create(a,thread)]);
+      await assert.rejects(forums.create(b,thread));
+      await assert.rejects(forums.create(a,{...thread,body:'Changed'}));
+      const second={id:randomUUID(),title:'Other thread',body:'Another discussion'};
+      await forums.create(b,second);
+      const firstPage=await forums.list(a,0,1);
+      assert.equal(firstPage.items[0].id,second.id);
+      assert.equal((await forums.list(a,firstPage.nextCursor!,1)).items[0].id,thread.id);
+      const reply={id:randomUUID(),body:'Bring water'};
+      await Promise.all([forums.reply(thread.id,b,reply),forums.reply(thread.id,b,reply)]);
+      await forums.reply(thread.id,a,{id:randomUUID(),body:'Thanks'});
+      await assert.rejects(forums.reply(second.id,b,reply));
+      const page=await forums.read(thread.id,a,0,1);
+      assert.equal(page.items[0].body,'Bring water');
+      assert.equal((await forums.read(thread.id,a,page.nextCursor!,1)).items[0].body,'Thanks');
+      await assert.rejects(forums.close(thread.id,b,true));
+      await forums.close(thread.id,a,true);
+      await forums.reply(thread.id,b,reply); // An acknowledged retry remains valid after closing.
+      await assert.rejects(forums.reply(thread.id,b,{id:randomUUID(),body:'Late'}));
+      await forums.close(thread.id,a,false);
+      await blocks.set(a,b,true);
+      assert.equal((await forums.list(a,0,1)).items[0].id,thread.id);
+      await assert.rejects(forums.read(thread.id,b));
+      await assert.rejects(forums.reply(thread.id,b,reply));
+      assert.deepEqual((await forums.read(thread.id,a,0,1)).items.map(r=>r.body),['Thanks']);
+      await blocks.set(a,b,false);
+      const reconnected=new PostgresStore(url.toString());
+      try{assert.equal((await new ForumRepository(reconnected.pool).read(thread.id,b)).items.length,2);}
+      finally{await reconnected.close();}
+    });
+
+    await t.test('forum edits, deletions and moderation enforce ownership and retain audit evidence', async () => {
+      const author=await db.identify({issuer:'https://manage.example',subject:'author'});
+      const reader=await db.identify({issuer:'https://manage.example',subject:'reader'});
+      const moderator=await db.identify({issuer:'https://manage.example',subject:'moderator'});
+      const forum=new ForumRepository(db.pool),management=new ForumManagement(db.pool);
+      const thread={id:randomUUID(),title:'Original title',body:'Original body'};
+      await forum.create(author,thread);
+      await assert.rejects(management.change('threads',thread.id,reader,{revision:1,title:'Hijack',body:'Hijack'}));
+      const results=await Promise.allSettled([management.change('threads',thread.id,author,{revision:1,title:'Edited',body:'First edit'}),management.change('threads',thread.id,author,{revision:1,title:'Edited',body:'Other edit'})]);
+      assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+      assert.equal((await forum.read(thread.id,reader)).thread.revision,2);
+      const reply={id:randomUUID(),body:'Reply content'};await forum.reply(thread.id,reader,reply);
+      await assert.rejects(management.change('replies',reply.id,author,{revision:1},true));
+      await management.change('replies',reply.id,reader,{revision:1,body:'Edited reply'});
+      await assert.rejects(management.change('replies',reply.id,reader,{revision:1},true));
+      await management.change('replies',reply.id,reader,{revision:2},true);
+      await management.change('replies',reply.id,reader,{revision:2},true);
+      assert.equal((await forum.read(thread.id,author)).items.length,0);
+      await assert.rejects(forum.reply(thread.id,reader,reply));
+      await Promise.all([management.report('threads',thread.id,reader,{reason:'Review this'}),management.report('threads',thread.id,reader,{reason:'Review this'})]);
+      await assert.rejects(management.queue(reader));
+      await db.pool.query('INSERT INTO forum_moderators(user_id) VALUES($1)',[moderator]);
+      assert.equal(await management.isModerator(moderator),true);
+      const reports=await management.queue(moderator);
+      assert.equal(reports.items.length,1);
+      const reportId=reports.items[0].id,reportedBody=reports.items[0].reportedBody;
+      await management.change('threads',thread.id,author,{revision:2,title:'Changed after report',body:'New content'});
+      assert.equal((await management.queue(moderator)).items[0].reportedBody,reportedBody);
+      const decision={action:'remove',reason:'Violates community rules'};
+      await assert.rejects(management.decide(reportId,reader,decision));
+      await management.decide(reportId,moderator,decision);await management.decide(reportId,moderator,decision);
+      await assert.rejects(management.decide(reportId,moderator,{...decision,action:'dismiss'}));
+      assert.equal((await management.queue(moderator)).items.length,0);
+      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM forum_moderation_actions WHERE report_id=$1',[reportId])).rows[0].n,1);
+      await assert.rejects(forum.read(thread.id,author));
+      await assert.rejects(forum.close(thread.id,author,false));
+      await assert.rejects(management.change('threads',thread.id,author,{revision:4,title:'Restore',body:'Restore'}));
+      await assert.rejects(forum.create(author,thread));
+      const another={id:randomUUID(),title:'Reply review',body:'Keep this discussion'};await forum.create(author,another);
+      const flagged={id:randomUUID(),body:'Flagged reply'};await forum.reply(another.id,reader,flagged);
+      await management.report('replies',flagged.id,author,{reason:'Please review'});
+      const dismissed=(await management.queue(moderator)).items[0].id;
+      await management.decide(dismissed,moderator,{action:'dismiss',reason:'No violation'});
+      assert.equal((await forum.read(another.id,author)).items.length,1);
+      await management.report('replies',flagged.id,author,{reason:'Additional concern'});
+      const reopened=(await management.queue(moderator)).items[0];
+      assert.notEqual(reopened.id,dismissed);assert.equal(reopened.reportedBody,flagged.body);
+      await management.decide(reopened.id,moderator,{action:'remove',reason:'Confirmed violation'});
+      assert.equal((await forum.read(another.id,author)).items.length,0);
+      await db.pool.query('DELETE FROM forum_moderators WHERE user_id=$1',[moderator]);
+      await assert.rejects(management.queue(moderator));
+      const own={id:randomUUID(),title:'Delete me',body:'Own content'};await forum.create(author,own);
+      await management.change('threads',own.id,author,{revision:1},true);
+      assert.ok(!(await forum.list(author)).items.some(t=>t.id===own.id));
+      await assert.rejects(forum.reply(own.id,reader,{id:randomUUID(),body:'Hidden'}));
+    });
+
     await t.test('verified identities are isolated and concurrent first login is idempotent', async () => {
       const identity = { issuer: 'https://identity.example', subject: 'account-a' };
       const [a, duplicate] = await Promise.all([db.identify(identity), db.identify(identity)]);
@@ -235,7 +334,7 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await db.execute({type:'create-trip',id:tripId,trekId:seed.treks[0].id,title:'Chat outing',startsAt:new Date(Date.now()+86400000).toISOString(),timezone:'UTC',maxParticipants:4});
       await db.execute({type:'join',tripId},guest);await db.execute({type:'approve',tripId,userId:guest});
       const http=createServer();
-      const stop=startRealtime(http,db.pool,async token=>{if(token!=='Bearer test-guest')throw new Error('Invalid token');return guest;},[]);
+      const stop=await startRealtime(http,db.pool,async token=>{if(token!=='Bearer test-guest')throw new Error('Invalid token');return guest;},[]);
       http.listen(0,'127.0.0.1');await once(http,'listening');
       const port=(http.address() as {port:number}).port;
       const socket=io(`http://127.0.0.1:${port}`,{auth:{token:'test-guest'},autoConnect:false,reconnection:false});
@@ -265,6 +364,78 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
         await assert.rejects(repository.send(tripId,guest,randomUUID(),'No access'));
         assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM trip_outbox WHERE trip_id=$1',[tripId])).rows[0].n,2);
       }finally{socket.disconnect();await stop();}
+    });
+
+    await t.test('two API instances fan out notifications and retry Redis publication failures', async () => {
+      assert.ok(process.env.TEST_REDIS_URL,'Set TEST_REDIS_URL to a disposable Redis server with ACL administration enabled.');
+      const adminRedis=createClient({url:process.env.TEST_REDIS_URL,socket:{reconnectStrategy:false}});
+      adminRedis.on('error',()=>{});await adminRedis.connect();
+      const username=`test_${randomUUID().replaceAll('-','')}`,password=randomUUID(),channel=`test:chat:${randomUUID()}`;
+      const redisUrl=new URL(process.env.TEST_REDIS_URL);redisUrl.username=username;redisUrl.password=password;
+      const guest=await db.identify({issuer:'https://fanout.example',subject:'guest'}),outsider=await db.identify({issuer:'https://fanout.example',subject:'outsider'});
+      const tripId=randomUUID();
+      await db.execute({type:'create-trip',id:tripId,trekId:seed.treks[0].id,title:'Distributed chat',startsAt:'2099-01-01T00:00:00Z',timezone:'UTC',maxParticipants:4});
+      await db.execute({type:'join',tripId},guest);await db.execute({type:'approve',tripId,userId:guest});
+      const poolB=new PostgresStore(url.toString()),httpA=createServer(),httpB=createServer();
+      const clients:ReturnType<typeof io>[]=[];let stopA:(()=>Promise<void>)|undefined,stopB:(()=>Promise<void>)|undefined;
+      const authenticate=async(token:string)=>{if(token==='Bearer host')return DEMO_USER;if(token==='Bearer guest')return guest;if(token==='Bearer outsider')return outsider;throw new Error('Invalid token');};
+      async function connect(http:ReturnType<typeof createServer>,token:string){const client=io(`http://127.0.0.1:${(http.address() as {port:number}).port}`,{auth:{token},autoConnect:false,reconnection:false});clients.push(client);const ready=once(client,'connect',{signal:AbortSignal.timeout(5000)});client.connect();await ready;return client;}
+      async function until(check:()=>Promise<boolean>){const end=Date.now()+12000;while(!await check()){assert.ok(Date.now()<end,'Timed out awaiting outbox state');await new Promise(r=>setTimeout(r,100));}}
+      try{
+        await adminRedis.sendCommand(['ACL','SETUSER',username,'reset','on',`>${password}`,'+@connection','+publish','+subscribe','+unsubscribe','+eval','+time','+zadd','+zrange','+zrem','+zremrangebyscore','+pexpire',`~${channel}:presence:*`,`&${channel}`]);
+        const options={redisUrl:redisUrl.toString(),channel};
+        stopA=await startRealtime(httpA,db.pool,authenticate,[],options);stopB=await startRealtime(httpB,poolB.pool,authenticate,[],options);
+        await assert.rejects(startRealtime(createServer(),poolB.pool,authenticate,[])); // Cannot mix local and Redis dispatchers.
+        httpA.listen(0,'127.0.0.1');httpB.listen(0,'127.0.0.1');await Promise.all([once(httpA,'listening'),once(httpB,'listening')]);
+        const host=await connect(httpA,'host'),remote=await connect(httpB,'guest'),stranger=await connect(httpB,'outsider');
+        const pulse=(client:ReturnType<typeof io>)=>client.timeout(5000).emitWithAck('trip:presence',{tripId});
+        assert.equal((await pulse(stranger)).ok,false);
+        assert.equal((await host.timeout(5000).emitWithAck('trip:presence',{tripId,userId:outsider})).ok,false);
+        assert.equal((await pulse(remote)).ok,true);
+        assert.deepEqual((await pulse(host)).online.map((p:{id:string})=>p.id).sort(),[DEMO_USER,guest].sort());
+        const secondDevice=await connect(httpA,'guest');await pulse(secondDevice);secondDevice.disconnect();
+        await until(async()=>(await adminRedis.zRange(`${channel}:presence:${tripId}`,0,-1)).length===2);
+        assert.equal((await pulse(host)).online.filter((p:{id:string})=>p.id===guest).length,1);
+        const blocks=new BlockRepository(db.pool);await blocks.set(DEMO_USER,guest,true);
+        assert.deepEqual((await pulse(host)).online.map((p:{id:string})=>p.id),[DEMO_USER]);
+        assert.deepEqual((await pulse(remote)).online.map((p:{id:string})=>p.id),[guest]);
+        await blocks.set(DEMO_USER,guest,false);
+        // Force an expired server timestamp to exercise Redis cleanup without a 30-second wait.
+        const stale=(await adminRedis.zRange(`${channel}:presence:${tripId}`,0,-1)).filter(s=>s.startsWith(guest));
+        for(const value of stale)await adminRedis.zAdd(`${channel}:presence:${tripId}`,{score:0,value});
+        assert.deepEqual((await pulse(host)).online.map((p:{id:string})=>p.id),[DEMO_USER]);
+        await pulse(remote);
+        await adminRedis.sendCommand(['ACL','SETUSER',username,'-eval']);
+        assert.equal((await pulse(host)).ok,false);
+        await adminRedis.sendCommand(['ACL','SETUSER',username,'+eval']);
+        assert.equal((await pulse(host)).ok,true);
+        let remoteChanges=0,strangerChanges=0;
+        remote.on('trip:changed',event=>{if(event.tripId===tripId)remoteChanges++;});stranger.on('trip:changed',event=>{if(event.tripId===tripId)strangerChanges++;});
+        const firstId=randomUUID();assert.equal((await host.timeout(5000).emitWithAck('trip:send',{tripId,id:firstId,body:'Across servers'})).ok,true);
+        await until(async()=>remoteChanges>0);
+        assert.equal(strangerChanges,0);
+        assert.equal((await remote.timeout(5000).emitWithAck('trip:sync',{tripId,after:0})).items[0].body,'Across servers');
+        await until(async()=>!!(await db.pool.query('SELECT delivered_at FROM trip_outbox WHERE message_id=$1',[firstId])).rows[0].delivered_at);
+        await adminRedis.sendCommand(['ACL','SETUSER',username,'-publish']);
+        const secondId=randomUUID();const ack=await host.timeout(5000).emitWithAck('trip:send',{tripId,id:secondId,body:'Saved during Redis failure'});
+        assert.equal(ack.ok,true);
+        await new Promise(r=>setTimeout(r,2200));
+        assert.equal((await db.pool.query('SELECT delivered_at FROM trip_outbox WHERE message_id=$1',[secondId])).rows[0].delivered_at,null);
+        assert.equal((await remote.timeout(5000).emitWithAck('trip:sync',{tripId,after:1})).items[0].body,'Saved during Redis failure');
+        const before=remoteChanges;await adminRedis.sendCommand(['ACL','SETUSER',username,'+publish']);
+        await until(async()=>remoteChanges>before);
+        await until(async()=>!!(await db.pool.query('SELECT delivered_at FROM trip_outbox WHERE message_id=$1',[secondId])).rows[0].delivered_at);
+        await db.execute({type:'leave',tripId},guest);
+        assert.equal((await pulse(remote)).ok,false);
+        assert.deepEqual((await pulse(host)).online.map((p:{id:string})=>p.id),[DEMO_USER]);
+        assert.equal((await remote.timeout(5000).emitWithAck('trip:sync',{tripId,after:0})).ok,false);
+        await stopB();stopB=undefined;
+        await host.timeout(5000).emitWithAck('trip:send',{tripId,id:randomUUID(),body:'Other server stopped'});
+        assert.equal((await host.timeout(5000).emitWithAck('trip:sync',{tripId,after:2})).items[0].body,'Other server stopped');
+      }finally{
+        for(const client of clients)client.disconnect();await stopB?.();await stopA?.();await poolB.close();
+        await adminRedis.del(`${channel}:presence:${tripId}`);await adminRedis.sendCommand(['ACL','DELUSER',username]);adminRedis.destroy();
+      }
     });
 
     await t.test('concurrent duplicate writes persist once and invalid mutations roll back', async () => {
@@ -329,6 +500,99 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await assert.rejects(db.execute({ type: 'approve', tripId: trip.id, userId: DEMO_USER }), (e: unknown) => e instanceof DomainError && e.status === 403);
       await db.execute({ type: 'leave', tripId: trip.id });
       assert.equal((await db.read()).trips.find(t => t.id === trip.id)!.members.some(m => m.userId === DEMO_USER), false);
+    });
+    await t.test('generated blocking and invitation clients round-trip through the PostgreSQL HTTP API', async()=>{
+      const other=await db.identify({issuer:'https://client-test.example',subject:randomUUID()});
+      const ownId=randomUUID(),otherId=randomUUID();
+      for(const [id,actor] of [[ownId,DEMO_USER],[otherId,other]])await db.execute({type:'create-trip',id,trekId:seed.treks[0].id,title:'Client invitation',startsAt:'2099-01-01T00:00:00Z',timezone:'Asia/Kolkata',visibility:'private',maxParticipants:5},actor);
+      const incoming=await db.invite(otherId,other);
+      const port=3201;
+      const child=spawn(process.execPath,['--import','tsx','apps/api/src/main.ts'],{env:{...process.env,TSX_TSCONFIG_PATH:'apps/api/tsconfig.json',DEMO_MODE:'true',AUTH_MODE:'',NODE_ENV:'test',DATABASE_URL:url.toString(),REDIS_URL:'',PORT:String(port),HOST:'127.0.0.1'},stdio:['ignore','pipe','pipe']});
+      let logs='';child.stdout.on('data',v=>logs+=v);child.stderr.on('data',v=>logs+=v);
+      try{
+        const base=`http://127.0.0.1:${port}`;let ready=false;
+        const deadline=Date.now()+30_000;
+        while(Date.now()<deadline&&child.exitCode===null){try{ready=(await fetch(`${base}/v1/health`,{signal:AbortSignal.timeout(1000)})).ok;}catch{}if(ready)break;await new Promise(r=>setTimeout(r,100));}
+        assert.ok(ready,logs||'API startup timed out');
+        const client=createApiClient(base,()=> 'trektribe-local-demo');
+        await apiData(client.POST('/me/blocks/{id}',{params:{path:{id:other}},body:{blocked:true}}));
+        assert.ok((await apiData(client.GET('/me/blocks'))).items.some(p=>p.id===other));
+        await assert.rejects(apiData(client.POST('/invitations/accept',{body:{token:incoming.token}})),(e:unknown)=>e instanceof ApiError&&e.status===403);
+        await apiData(client.POST('/me/blocks/{id}',{params:{path:{id:other}},body:{blocked:false}}));
+        assert.equal((await apiData(client.GET('/me/blocks'))).items.some(p=>p.id===other),false);
+        const gpx='<gpx><rte><rtept lat="30" lon="79"/><rtept lat="30.01" lon="79.01"/></rte></gpx>';
+        const metadata={title:'HTTP imported trail',region:'Test',description:'Client route test',difficulty:'Easy'};
+        const published=await publishGpx(client,{...metadata,gpx});
+        assert.equal(published.hasElevation,false);
+        const pinnedTrip=randomUUID();
+        await db.execute({type:'create-trip',id:pinnedTrip,trekId:published.trekId,title:'HTTP pinned trip',startsAt:'2099-01-01T00:00:00Z',timezone:'UTC',maxParticipants:4});
+        const messageId=randomUUID();
+        const receipt=await sendMessage(client,pinnedTrip,{id:messageId,body:'HTTP conversation'});
+        assert.deepEqual(await sendMessage(client,pinnedTrip,{id:messageId,body:'HTTP conversation'}),receipt);
+        await assert.rejects(sendMessage(client,pinnedTrip,{id:messageId,body:'Changed'}),(e:unknown)=>e instanceof ApiError&&e.status===409);
+        await sendMessage(client,pinnedTrip,{id:randomUUID(),body:'Next message'});
+        const page=await listMessages(client,pinnedTrip,0,1);
+        assert.equal(page.items[0].id,messageId);assert.equal(page.hasMore,true);
+        const next=await listMessages(client,pinnedTrip,page.nextSequence,1);
+        assert.equal(next.items[0].body,'Next message');assert.equal(next.hasMore,false);
+        assert.equal((await listMessages(client,pinnedTrip,next.nextSequence)).items.length,0);
+        await assert.rejects(listMessages(client,otherId),(e:unknown)=>e instanceof ApiError&&e.status===404);
+        await assert.rejects(sendMessage(client,pinnedTrip,{id:randomUUID(),body:' '}),(e:unknown)=>e instanceof ApiError&&e.status===400);
+        const original=await getPinnedRoute(client,pinnedTrip);
+        assert.equal(original.id,published.routeVersionId);
+        assert.deepEqual(original.coordinates,[[79,30],[79.01,30.01]]);
+        const replacement=await publishGpx(client,{...metadata,gpx:gpx.replaceAll('30.01','30.02')},published.trekId);
+        assert.notEqual(replacement.routeVersionId,published.routeVersionId);
+        assert.deepEqual(await getPinnedRoute(client,pinnedTrip),original);
+        await assert.rejects(publishGpx(client,{...metadata,gpx:'invalid'}),(e:unknown)=>e instanceof ApiError&&e.status===400);
+        const foreign=await new RouteRepository(db.pool).publish(other,gpx,metadata);
+        await assert.rejects(publishGpx(client,{...metadata,gpx},foreign.trekId),(e:unknown)=>e instanceof ApiError&&e.status===404);
+        const threadId=randomUUID(),replyId=randomUUID();
+        const threadBody={id:threadId,title:'HTTP discussion',body:'Client discussion'};
+        await apiData(client.GET('/forum/capabilities'));
+        await apiData(client.POST('/forum/threads',{body:threadBody}));
+        await apiData(client.POST('/forum/threads',{body:threadBody}));
+        const listed=await apiData(client.GET('/forum/threads',{params:{query:{limit:1}}}));
+        assert.equal(listed.items[0].id,threadId);
+        const replyBody={id:replyId,body:'HTTP reply'};
+        await apiData(client.POST('/forum/threads/{id}/replies',{params:{path:{id:threadId}},body:replyBody}));
+        await apiData(client.POST('/forum/threads/{id}/replies',{params:{path:{id:threadId}},body:replyBody}));
+        const secondReply=randomUUID();
+        await apiData(client.POST('/forum/threads/{id}/replies',{params:{path:{id:threadId}},body:{id:secondReply,body:'Second reply'}}));
+        const firstPage=await apiData(client.GET('/forum/threads/{id}',{params:{path:{id:threadId},query:{limit:1}}}));
+        assert.equal(firstPage.items.length,1);assert.equal(firstPage.items[0].id,replyId);assert.ok(firstPage.nextCursor);
+        const secondPage=await apiData(client.GET('/forum/threads/{id}',{params:{path:{id:threadId},query:{limit:1,cursor:firstPage.nextCursor!}}}));
+        assert.equal(secondPage.items[0].id,secondReply);assert.equal(secondPage.nextCursor,null);
+        await apiData(client.POST('/forum/threads/{id}/closed',{params:{path:{id:threadId}},body:{closed:true}}));
+        await assert.rejects(apiData(client.POST('/forum/threads/{id}/replies',{params:{path:{id:threadId}},body:{id:randomUUID(),body:'Rejected'}})),(e:unknown)=>e instanceof ApiError&&e.status===409);
+        await apiData(client.POST('/forum/threads/{id}/closed',{params:{path:{id:threadId}},body:{closed:false}}));
+        await apiData(client.POST('/forum/threads/{id}/replies',{params:{path:{id:threadId}},body:{id:randomUUID(),body:'After reopening'}}));
+        await submitForumChange(client,{kind:'threads',id:threadId,action:'edit',data:{revision:1,title:'Edited HTTP discussion',body:'Edited body'}});
+        await assert.rejects(submitForumChange(client,{kind:'threads',id:threadId,action:'edit',data:{revision:1,title:'Stale',body:'Stale'}}),(e:unknown)=>e instanceof ApiError&&e.status===409);
+        await submitForumChange(client,{kind:'replies',id:replyId,action:'edit',data:{revision:1,body:'Edited reply'}});
+        await submitForumChange(client,{kind:'replies',id:secondReply,action:'remove',data:{revision:1}});
+        await submitForumChange(client,{kind:'replies',id:replyId,action:'report',data:{reason:'HTTP review'}});
+        await db.pool.query('DELETE FROM forum_moderators WHERE user_id=$1',[DEMO_USER]);
+        await assert.rejects(apiData(client.GET('/forum/moderation')),(e:unknown)=>e instanceof ApiError&&e.status===403);
+        await db.pool.query('INSERT INTO forum_moderators(user_id) VALUES($1)',[DEMO_USER]);
+        let cursor=0,reportId:number|undefined;
+        do{const queue=await apiData(client.GET('/forum/moderation',{params:{query:{cursor}}}));reportId=queue.items.find(r=>r.replyId===replyId)?.id;cursor=queue.nextCursor??0;}while(!reportId&&cursor);
+        assert.ok(reportId);
+        const decision={action:'remove' as const,reason:'HTTP moderation decision'};
+        await apiData(client.POST('/forum/moderation/{id}',{params:{path:{id:reportId}},body:decision}));
+        await apiData(client.POST('/forum/moderation/{id}',{params:{path:{id:reportId}},body:decision}));
+        const visible=await apiData(client.GET('/forum/threads/{id}',{params:{path:{id:threadId}}}));
+        assert.equal(visible.thread.title,'Edited HTTP discussion');
+        assert.equal(visible.items.some(r=>r.id===replyId||r.id===secondReply),false);
+        await submitForumChange(client,{kind:'threads',id:threadId,action:'remove',data:{revision:2}});
+        await assert.rejects(apiData(client.GET('/forum/threads/{id}',{params:{path:{id:threadId}}})),(e:unknown)=>e instanceof ApiError&&e.status===404);
+        await db.pool.query('DELETE FROM forum_moderators WHERE user_id=$1',[DEMO_USER]);
+        const issued=await apiData(client.POST('/group-treks/{id}/invitations',{params:{path:{id:ownId}}}));
+        assert.match(issued.token,/^[A-Za-z0-9_-]{43}$/);assert.ok(Date.parse(issued.expiresAt)>Date.now());
+        assert.deepEqual(await db.acceptInvite(issued.token,other),{tripId:ownId});
+        assert.deepEqual(await apiData(client.POST('/invitations/accept',{body:{token:incoming.token}})),{tripId:otherId});
+        assert.deepEqual(await apiData(client.POST('/invitations/accept',{body:{token:incoming.token}})),{tripId:otherId});
+      }finally{child.kill('SIGTERM');if(child.exitCode===null)await once(child,'exit');}
     });
   } finally {
     await store?.close();

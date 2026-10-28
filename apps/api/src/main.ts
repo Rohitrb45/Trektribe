@@ -7,14 +7,15 @@ import { randomUUID } from 'node:crypto';
 import { z, ZodError } from 'zod';
 import { DEMO_USER, DomainError, searchTreks } from '../../../packages/core/src/index';
 import { DemoStore, PostgresStore, Store } from './store';
-import { commandSchema, searchSchema, feedSchema } from './validation';
+import { commandSchema, searchSchema, feedSchema, routeSchema } from './validation';
 import { decodeCursor } from './feed';
 import { configuredVerifier } from './auth';
 import { RouteRepository } from './routes';
 import { MessageRepository } from './messages';
 import { startRealtime } from './realtime';
 import { BlockRepository } from './blocks';
-const routeSchema=z.object({gpx:z.string().min(1).max(1_000_000),title:z.string().trim().min(1).max(120),region:z.string().trim().min(1).max(120),description:z.string().max(5000),difficulty:z.enum(['Easy','Moderate','Hard'])}).strict();
+import { ForumRepository, forumPage } from './forums';
+import { ForumManagement } from './forum-management';
 
 if(process.env.NODE_ENV==='production')throw new Error('Production startup remains disabled until all resource policies and external integrations are verified.');
 const oidc=process.env.AUTH_MODE==='oidc';
@@ -32,6 +33,19 @@ function demoOnly(){if(oidc)throw new NotFoundException();}
 
 @Controller('v1')
 class ApiController {
+ private forumManagement(){if(!(store instanceof PostgresStore))throw new HttpException('Discussions require PostgreSQL.',409);return new ForumManagement(store.pool);}
+ @Get('forum/capabilities') async forumCapabilities(@Req() req:any){const user=await actor(req);return {moderator:await this.forumManagement().isModerator(user)};}
+ @HttpPost('forum/:kind/:id/edit') async editForum(@Req() req:any,@Param('kind') kind:string,@Param('id') id:string,@Body() body:unknown){const user=await actor(req);return this.forumManagement().change(z.enum(['threads','replies']).parse(kind),z.uuid().parse(id),user,body);}
+ @HttpPost('forum/:kind/:id/remove') async removeForum(@Req() req:any,@Param('kind') kind:string,@Param('id') id:string,@Body() body:unknown){const user=await actor(req);return this.forumManagement().change(z.enum(['threads','replies']).parse(kind),z.uuid().parse(id),user,body,true);}
+ @HttpPost('forum/:kind/:id/report') async reportForum(@Req() req:any,@Param('kind') kind:string,@Param('id') id:string,@Body() body:unknown){const user=await actor(req);return this.forumManagement().report(z.enum(['threads','replies']).parse(kind),z.uuid().parse(id),user,body);}
+ @Get('forum/moderation') async forumQueue(@Req() req:any,@Query() query:unknown){const user=await actor(req),q=forumPage.parse(query);return this.forumManagement().queue(user,q.cursor);}
+ @HttpPost('forum/moderation/:id') async moderateForum(@Req() req:any,@Param('id') id:string,@Body() body:unknown){const user=await actor(req);return this.forumManagement().decide(z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER).parse(id),user,body);}
+ private forum(){if(!(store instanceof PostgresStore))throw new HttpException('Discussions require PostgreSQL.',409);return new ForumRepository(store.pool);}
+ @Get('forum/threads') async threads(@Req() req:any,@Query() query:unknown){const user=await actor(req),q=forumPage.parse(query);return this.forum().list(user,q.cursor,q.limit);}
+ @HttpPost('forum/threads') async newThread(@Req() req:any,@Body() body:unknown){const user=await actor(req);return this.forum().create(user,body);}
+ @Get('forum/threads/:id') async thread(@Req() req:any,@Param('id') id:string,@Query() query:unknown){const user=await actor(req),q=forumPage.parse(query);return this.forum().read(z.uuid().parse(id),user,q.cursor,q.limit);}
+ @HttpPost('forum/threads/:id/replies') async reply(@Req() req:any,@Param('id') id:string,@Body() body:unknown){const user=await actor(req);return this.forum().reply(z.uuid().parse(id),user,body);}
+ @HttpPost('forum/threads/:id/closed') async closeThread(@Req() req:any,@Param('id') id:string,@Body() body:unknown){const user=await actor(req),data=z.object({closed:z.boolean()}).strict().parse(body);return this.forum().close(z.uuid().parse(id),user,data.closed);}
  @Get('me/blocks') async blocks(@Req() req:any){
    const user=await actor(req);if(!(store instanceof PostgresStore))throw new HttpException('Blocking requires PostgreSQL.',409);
    return new BlockRepository(store.pool).list(user);
@@ -141,7 +155,7 @@ async function bootstrap(){
    response.status(status).json({error:{code:exception instanceof DomainError?exception.code:status===400?'VALIDATION_ERROR':status===401?'UNAUTHORIZED':'REQUEST_FAILED',message,requestId}});
  }});
  app.enableShutdownHooks();
- const stopRealtime=store instanceof PostgresStore?startRealtime(app.getHttpServer(),store.pool,authorization=>actor({headers:{authorization}}),(process.env.CORS_ORIGINS||'http://localhost:8081,http://127.0.0.1:8081').split(',')):undefined;
+ const stopRealtime=store instanceof PostgresStore?await startRealtime(app.getHttpServer(),store.pool,authorization=>actor({headers:{authorization}}),(process.env.CORS_ORIGINS||'http://localhost:8081,http://127.0.0.1:8081').split(','),{redisUrl:process.env.REDIS_URL,channel:process.env.CHAT_REDIS_CHANNEL}):undefined;
  await app.listen(Number(process.env.PORT||3001),process.env.HOST||'127.0.0.1');
  console.log(`TrekTribe demo API: http://${process.env.HOST||'127.0.0.1'}:${process.env.PORT||3001}/v1/health`);
  const stop=async()=>{await stopRealtime?.();await app.close();await store.close();process.exit(0);};process.once('SIGTERM',stop);process.once('SIGINT',stop);

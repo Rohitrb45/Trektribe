@@ -30,7 +30,7 @@ The project pins Expo SDK 54 and its matching React / React Native versions. Use
 
 ## What works
 
-- Responsive Explore, Community, Trips, and Profile screens.
+- Responsive Explore, Community, Trips, and Profile screens with Expo Router URLs, browser history, and direct trail links.
 - Search by trail name, region, or highlights; difficulty and saved-trail filters.
 - Trail details, metrics, and clearly labeled illustrative route previews.
 - Save/unsave trails and persist them across reloads.
@@ -150,3 +150,7 @@ Live-provider sign-in verification; blocking and moderation; photo/video capture
 Profile and gear editing, outing creation/cancellation, configurable OIDC authentication, private invitations, GPX import, immutable route versions, and persisted outing conversations are implemented. PostgreSQL is required for invitations, GPX import, and conversations; two real users also require a configured OIDC provider. See [authentication setup](docs/AUTHENTICATION.md) and [feature validation](docs/FEATURE_VALIDATION.md).
 
 Badges and initial activity totals are samples. Offline-capable browser assets are not offline map downloads. Read `docs/NEXT_STEPS.md` for remaining milestones. Production startup remains disabled.
+
+## API contract development
+
+See [the generated client guide](docs/API_CLIENT.md) for contract scope, regeneration, and checks. Run `npm run api:generate` after editing the contract; CI verifies it with `npm run api:check`.

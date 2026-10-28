@@ -1,3 +1,5 @@
+import { executeCommand } from '../apps/mobile/src/api/commands';
+import { createApiClient, apiData, ApiError } from '../apps/mobile/src/api/client';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -26,6 +28,28 @@ test('HTTP API enforces demo auth, validates requests, pages feed, and persists 
   const before=await(await fetch(`${base}/demo/state`,{headers})).json();
   assert.equal((await fetch(`${base}/me`)).status,401);
   assert.equal((await(await fetch(`${base}/me`,{headers})).json()).id,before.profile.id);
+  const client=createApiClient(`http://127.0.0.1:${port}`,()=> 'trektribe-local-demo');
+  // PostgreSQL-only endpoints must preserve their explicit unavailable response in local mode.
+  for(const call of [
+    ()=>client.GET('/me/blocks'),
+    ()=>client.POST('/me/blocks/{id}',{params:{path:{id:before.profile.id}},body:{blocked:false}}),
+    ()=>client.POST('/group-treks/{id}/invitations',{params:{path:{id:before.trips[0].id}}}),
+    ()=>client.POST('/invitations/accept',{body:{token:'a'.repeat(43)}}),
+  ]) await assert.rejects(call(),(error:unknown)=>error instanceof ApiError && error.status===409);
+  assert.deepEqual(await apiData(client.GET('/me')),before.profile);
+  assert.deepEqual((await apiData(client.GET('/treks'))).items,before.treks);
+  assert.deepEqual((await apiData(client.GET('/group-treks'))).items,before.trips);
+  assert.deepEqual((await apiData(client.GET('/me/saved-treks'))).items,[]);
+  const clientPage=await apiData(client.GET('/feed',{params:{query:{limit:1}}}));
+  assert.equal(clientPage.items.length,1);
+  assert.ok(clientPage.nextCursor);
+  const clientNext=await apiData(client.GET('/feed',{params:{query:{limit:1,cursor:clientPage.nextCursor!}}}));
+  assert.notEqual(clientNext.items[0].id,clientPage.items[0].id);
+  assert.deepEqual((await apiData(client.GET('/posts/{id}/comments',{params:{path:{id:before.posts[0].id}}}))).items,before.comments.filter((c:any)=>c.postId===before.posts[0].id));
+  assert.deepEqual(await apiData(client.GET('/treks/{id}',{params:{path:{id:before.treks[0].id}}})),before.treks[0]);
+  assert.deepEqual((await apiData(client.POST('/me/saved-treks/{id}',{params:{path:{id:before.treks[0].id}},body:{saved:true}}))).items,[before.treks[0].id]);
+  assert.deepEqual((await apiData(client.POST('/me/saved-treks/{id}',{params:{path:{id:before.treks[0].id}},body:{saved:false}}))).items,[]);
+  assert.ok((await apiData(client.POST('/posts/{id}/like',{params:{path:{id:before.posts[0].id}},body:{liked:true}}))).likedBy.includes(before.profile.id));
   const report={id:'00000000-0000-4000-8000-000000000997',trekId:before.treks[0].id,content:'Resource report',rating:4,condition:'Clear',observedAt:'2020-01-01'};
   assert.equal((await fetch(`${base}/posts`,{method:'POST',headers,body:JSON.stringify({...report,userId:'spoof'})})).status,400);
   const resource=await fetch(`${base}/posts`,{method:'POST',headers,body:JSON.stringify(report)});
@@ -33,5 +57,32 @@ test('HTTP API enforces demo auth, validates requests, pages feed, and persists 
   const updated=await fetch(`${base}/demo/commands`,{method:'POST',headers,body:JSON.stringify({type:'save',trekId:before.treks[0].id,saved:true})});assert.equal(updated.status,201);
   const after=await(await fetch(`${base}/demo/state`,{headers})).json();assert.equal(after.saved[after.profile.id].length,1);
   assert.equal((await fetch(`${base}/demo/commands`,{method:'POST',headers,body:JSON.stringify({type:'join',tripId:'invalid'})})).status,400);
+  await executeCommand(client,{type:'profile',name:'Client Trekker',bio:'Contract test',level:'Experienced',gear:['Water']});
+  assert.equal((await apiData(client.GET('/me'))).name,'Client Trekker');
+  const createdReport={type:'post' as const,...report,id:'00000000-0000-4000-8000-000000000996'};
+  await executeCommand(client,createdReport);await executeCommand(client,createdReport);
+  assert.equal((await apiData(client.GET('/feed'))).items.filter(p=>p.id===createdReport.id).length,1);
+  const commentId='00000000-0000-4000-8000-000000000995';
+  await executeCommand(client,{type:'comment',id:commentId,postId:createdReport.id,body:'Typed comment'});
+  assert.equal((await apiData(client.GET('/posts/{id}/comments',{params:{path:{id:createdReport.id}}}))).items[0].id,commentId);
+  const outingId='00000000-0000-4000-8000-000000000994';
+  await executeCommand(client,{type:'create-trip',id:outingId,trekId:before.treks[0].id,title:'Typed outing',startsAt:'2099-01-01T00:00:00Z',timezone:'Asia/Kolkata',maxParticipants:4});
+  const trips=()=>apiData(client.GET('/group-treks')).then(r=>r.items);
+  assert.equal((await trips()).find(t=>t.id===outingId)?.visibility,'public');
+  const other=before.trips.find((t:any)=>t.organizerId!==before.profile.id);
+  await executeCommand(client,{type:'join',tripId:other.id});
+  assert.equal((await trips()).find(t=>t.id===other.id)?.members.find(m=>m.userId===before.profile.id)?.status,'pending');
+  await executeCommand(client,{type:'leave',tripId:other.id});
+  assert.equal((await trips()).find(t=>t.id===other.id)?.members.some(m=>m.userId===before.profile.id),false);
+  const owned=before.trips.find((t:any)=>t.organizerId===before.profile.id);
+  const guest=owned.members.find((m:any)=>m.status==='pending').userId;
+  await executeCommand(client,{type:'approve',tripId:owned.id,userId:guest});
+  await executeCommand(client,{type:'cohost',tripId:owned.id,userId:guest,enabled:true});
+  assert.equal((await trips()).find(t=>t.id===owned.id)?.members.find(m=>m.userId===guest)?.role,'cohost');
+  await executeCommand(client,{type:'cohost',tripId:owned.id,userId:guest,enabled:false});
+  assert.notEqual((await trips()).find(t=>t.id===owned.id)?.members.find(m=>m.userId===guest)?.role,'cohost');
+  await assert.rejects(executeCommand(client,{type:'cancel-trip',tripId:other.id}));
+  await executeCommand(client,{type:'cancel-trip',tripId:outingId});
+  assert.equal((await trips()).find(t=>t.id===outingId)?.status,'closed');
  }finally{child.kill('SIGTERM');await new Promise<void>(resolve=>{if(child.exitCode!==null)resolve();else child.once('exit',()=>resolve());});await rm(dir,{recursive:true,force:true});}
 });

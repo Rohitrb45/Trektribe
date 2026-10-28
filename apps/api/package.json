@@ -12,6 +12,7 @@
     "@nestjs/platform-express": "^11.1.0",
     "jose": "^6.2.12",
     "pg": "^8.16.0",
+    "redis": "^6.3.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "saxes": "^6.0.0",

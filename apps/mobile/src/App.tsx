@@ -1,121 +1,813 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
-import { Command, Post, searchTreks, State, Trek } from '@trektribe/core';
-import { dispatch, loadState, makeId, mode, apiUrl, createInvitation, pinnedRoute, setBlock } from './data';
-import { Icon, MountainArt, RouteArt } from './Art';
-import { AuthGate } from './AuthGate';
-import { BlockSettings } from './BlockSettings';
-import { TripChat } from './TripChat';
-import { ProfileEditor, TripEditor, InvitationSheet, RouteEditor } from './Editors';
-import { authenticatedMode } from './session';
+import RouteMap from "./RouteMap";
+import { Avatar, Button, Chip, Label, green, muted, s } from "./ui";
+import { ExploreScreen } from "./screens/ExploreScreen";
+import { CommunityScreen } from "./screens/CommunityScreen";
+import { TripsScreen } from "./screens/TripsScreen";
+import { ProfileScreen } from "./screens/ProfileScreen";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
+import { Command, Post, State, Trek } from "@trektribe/core";
+import {
+  dispatch,
+  loadState,
+  makeId,
+  mode,
+  apiUrl,
+  createInvitation,
+  pinnedRoute,
+  setBlock,
+} from "./data";
+import { Icon, MountainArt } from "./Art";
+import { AuthGate } from "./AuthGate";
+import { BlockSettings } from "./BlockSettings";
+import { Forum } from "./Forum";
+import { TripChat } from "./TripChat";
+import {
+  ProfileEditor,
+  TripEditor,
+  InvitationSheet,
+  RouteEditor,
+} from "./Editors";
+import { authenticatedMode } from "./session";
+import { Slot, usePathname, useRouter } from "expo-router";
+import { resolveRoute, tabPaths } from "./navigation";
+import {
+  useDiscoveryFilters,
+  resetDiscoveryFilters,
+} from "./discovery-filters";
 
-const green='#234d3b', muted='#768078', ink='#233d32';
-const tabs=['Explore','Community','Trips','Profile'] as const;
-type Tab=typeof tabs[number];
-function Button({ title, onPress, quiet=false, disabled=false }: { title:string; onPress:()=>void; quiet?:boolean; disabled?:boolean }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={title} disabled={disabled} onPress={onPress} style={({pressed})=>[s.button,quiet&&s.quiet, { opacity:disabled?0.45:pressed?0.75:1 }]}><Text style={[s.buttonText,quiet&&{color:green}]}>{title}</Text></Pressable>;
-}
-function Chip({ title, active=false, onPress }: {title:string;active?:boolean;onPress:()=>void}) {
-  return <Pressable accessibilityRole="button" accessibilityState={{selected:active}} onPress={onPress} style={[s.chip,active&&s.chipActive]}><Text style={[s.chipText,active&&{color:'#fff'}]}>{title}</Text></Pressable>;
-}
-function Label({children}:{children:React.ReactNode}) {return <Text style={s.eyebrow}>{children}</Text>;}
-function Avatar({ initials, small=false }: {initials:string;small?:boolean}) {return <View style={[s.avatar,small&&{width:34,height:34}]}><Text style={s.avatarText}>{initials}</Text></View>;}
-function date(value:string) {return new Date(value).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric',timeZone:'Asia/Kolkata'});}
-function useRequestId(){
-  const pending=useRef<{fingerprint:string;id:string}|null>(null);
-  const get=(payload:unknown)=>{const fingerprint=JSON.stringify(payload);if(pending.current?.fingerprint!==fingerprint)pending.current={fingerprint,id:makeId()};return pending.current!.id;};
-  return [get,()=>{pending.current=null;}] as const;
+const tabs = ["Explore", "Community", "Trips", "Profile"] as const;
+type Tab = (typeof tabs)[number];
+function useRequestId() {
+  const pending = useRef<{ fingerprint: string; id: string } | null>(null);
+  const get = (payload: unknown) => {
+    const fingerprint = JSON.stringify(payload);
+    if (pending.current?.fingerprint !== fingerprint)
+      pending.current = { fingerprint, id: makeId() };
+    return pending.current!.id;
+  };
+  return [
+    get,
+    () => {
+      pending.current = null;
+    },
+  ] as const;
 }
 
-export default function App(){return <SafeAreaProvider>{authenticatedMode?<AuthGate>{logout=><Application logout={logout}/>}</AuthGate>:<Application/>}</SafeAreaProvider>;}
-function Application({logout}:{logout?:()=>Promise<void>}){
-  const {width}=useWindowDimensions(); const wide=width>=1000;
-  const [state,setState]=useState<State|null>(null),[tab,setTab]=useState<Tab>('Explore');
-  const [query,setQuery]=useState(''),[difficulty,setDifficulty]=useState('All'),[savedOnly,setSavedOnly]=useState(false);
-  const [selected,setSelected]=useState<Trek|null>(null),[composer,setComposer]=useState(false),[comments,setComments]=useState<Post|null>(null);
-  const [blockSettings,setBlockSettings]=useState(false);
-  const [chatTrip,setChatTrip]=useState<string|null>(null);
-  const [routeEditor,setRouteEditor]=useState<Trek|boolean>(false);
-  const [invite,setInvite]=useState<string|null>(null);
-  const [editProfile,setEditProfile]=useState(false),[createTrip,setCreateTrip]=useState(false);
-  const [error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
-  const refresh=()=>{setError('');loadState().then(setState).catch(e=>setError(e.message));};
-  useEffect(refresh,[]);
-  useEffect(()=>{if(notice){const timer=setTimeout(()=>setNotice(''),4500);return()=>clearTimeout(timer);}},[notice]);
-  async function act(command:Command, message?:string){setBusy(true);try{setState(await dispatch(command));if(message)setNotice(message);return true;}catch(e){setError((e as Error).message);return false;}finally{setBusy(false);}}
-  async function blockAuthor(id:string){
-    setBusy(true);setError('');
-    try{await setBlock(id,true);setComments(null);setChatTrip(null);setState(await loadState());setNotice('Person blocked. Manage blocks in Profile.');}
-    catch(e){setError((e as Error).message);}finally{setBusy(false);}
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <Slot />
+      {authenticatedMode ? (
+        <AuthGate>
+          {(logout) => (
+            <Application
+              logout={async () => {
+                await logout();
+                resetDiscoveryFilters();
+              }}
+            />
+          )}
+        </AuthGate>
+      ) : (
+        <Application />
+      )}
+    </SafeAreaProvider>
+  );
+}
+function Application({ logout }: { logout?: () => Promise<void> }) {
+  const { width } = useWindowDimensions();
+  const wide = width >= 1000;
+  const [state, setState] = useState<State | null>(null);
+  const pathname = usePathname(),
+    router = useRouter(),
+    route = resolveRoute(pathname);
+  const tab = route.tab;
+  const { setQuery, setDifficulty, setSavedOnly } = useDiscoveryFilters();
+  const [preview, setPreview] = useState<Trek | null>(null),
+    [composer, setComposer] = useState(false),
+    [comments, setComments] = useState<Post | null>(null);
+  const [blockSettings, setBlockSettings] = useState(false);
+  const [forum, setForum] = useState(false);
+  const [chatTrip, setChatTrip] = useState<string | null>(null);
+  const [routeEditor, setRouteEditor] = useState<Trek | boolean>(false);
+  const [invite, setInvite] = useState<string | null>(null);
+  const [editProfile, setEditProfile] = useState(false),
+    [createTrip, setCreateTrip] = useState(false);
+  const [error, setError] = useState(""),
+    [notice, setNotice] = useState(""),
+    [busy, setBusy] = useState(false);
+  const refresh = () => {
+    setError("");
+    loadState()
+      .then(setState)
+      .catch((e) => setError(e.message));
+  };
+  useEffect(refresh, []);
+  useEffect(() => {
+    setPreview(null);
+    setComposer(false);
+    setComments(null);
+    setBlockSettings(false);
+    setForum(false);
+    setChatTrip(null);
+    setRouteEditor(false);
+    setInvite(null);
+    setEditProfile(false);
+    setCreateTrip(false);
+    setError("");
+  }, [pathname]);
+  const selected =
+    preview ??
+    (route.trailId
+      ? (state?.treks.find((t) => t.id === route.trailId) ?? null)
+      : null);
+  function closeTrail() {
+    setPreview(null);
+    if (route.trailId) router.replace("/");
   }
-  if(!state)return <SafeAreaView style={s.loading}><Icon name="mountain" size={48}/><Text style={s.title}>TrekTribe</Text>{error?<><Text style={s.body}>{error}</Text><Button title="Try again" onPress={refresh}/>{logout&&<Button title="Sign out" onPress={()=>logout().catch(e=>setError(e.message))}/>}</>:<ActivityIndicator color={green}/>}</SafeAreaView>;
-  const saved=state.saved[state.profile.id]||[];
-  const trails=searchTreks(state.treks,query,difficulty).filter(t=>!savedOnly||saved.includes(t.id));
-  const headerTitle={Explore:'Find your next outside.',Community:'Stories from the trail.',Trips:'Good trails. Better company.',Profile:'Your trail story.'}[tab];
-  function navigate(next:Tab){setTab(next);setError('');}
-  function TrailCard({trek,index}:{trek:Trek;index:number}){return <View style={[s.trailCard,{width:wide?'31.8%':width>650?'48.5%':'100%'}]}>
-    <Pressable accessibilityRole="button" accessibilityLabel={`View ${trek.title}`} onPress={()=>setSelected(trek)}><View style={s.cardArt}><MountainArt color={trek.color} variant={index}/><View style={s.difficulty}><Text style={s.tagText}>{trek.difficulty}</Text></View></View></Pressable>
-    <View style={s.cardBody}><View style={s.rowBetween}><Text style={s.location}>{trek.region.toUpperCase()}</Text><Pressable accessibilityRole="button" accessibilityLabel={`${saved.includes(trek.id)?'Unsave':'Save'} ${trek.title}`} disabled={busy} onPress={()=>act({type:'save',trekId:trek.id,saved:!saved.includes(trek.id)})}><Icon name={saved.includes(trek.id)?'check':'save'} size={20}/></Pressable></View>
-    <Pressable accessibilityRole="button" onPress={()=>setSelected(trek)}><Text style={s.cardTitle}>{trek.title}</Text></Pressable>
-    <Text style={s.bodySmall}>{trek.distanceKm} km  ·  {trek.duration}  ·  ↑ {trek.elevationM} m</Text>
-    <View style={[s.rowBetween,s.cardFooter]}><Text style={s.bodySmall}><Text style={{color:'#b89147'}}>★</Text> {trek.reports?trek.rating.toFixed(1):'Not rated'} <Text style={{color:muted}}>({trek.reports} reports)</Text></Text><Pressable accessibilityLabel={`Open ${trek.title}`} accessibilityRole="button" onPress={()=>setSelected(trek)}><Icon name="arrow" size={19}/></Pressable></View></View>
-  </View>;}
-  return <SafeAreaView style={s.root}><StatusBar style="dark"/>
-    <View style={[s.topbar,{paddingHorizontal:wide?44:20}]}><Pressable accessibilityRole="button" accessibilityLabel="TrekTribe home" onPress={()=>navigate('Explore')} style={s.brand}><View style={s.logo}><Icon name="mountain" color="#fff" size={26}/></View><Text style={s.brandText}>TrekTribe<Text style={{color:'#91a47a'}}>.</Text></Text></Pressable>
-      {wide&&<View style={s.nav}>{tabs.map(t=><Pressable key={t} accessibilityRole="tab" accessibilityState={{selected:tab===t}} onPress={()=>navigate(t)} style={[s.navItem,tab===t&&s.navActive]}><Text style={[s.navText,tab===t&&{color:green}]}>{t}</Text></Pressable>)}</View>}
-      <View style={s.row}><Text style={s.demoPill}>{mode}</Text>{logout&&<Button title="Sign out" quiet disabled={busy} onPress={()=>logout().catch(e=>setError(e.message))}/>} {wide&&<Avatar initials={state.profile.initials} small/>}</View>
-    </View>
-    {!!error&&<View accessibilityRole="alert" style={s.error}><Text style={{color:'#842f24',flex:1}}>{error}</Text><Pressable accessibilityLabel="Dismiss error" onPress={()=>setError('')}><Icon name="close" color="#842f24"/></Pressable></View>}
-    {!!notice&&<View accessibilityLiveRegion="polite" style={s.notice}><Icon name="check" size={18}/><Text style={s.bodySmall}>{notice}</Text></View>}
-    <ScrollView contentContainerStyle={[s.content,{paddingHorizontal:wide?44:20}]}>
-      <View style={s.pageHeader}><View><Label>LESS SCROLLING. MORE SUMMITS.</Label><Text style={[s.title,{fontSize:wide?38:30}]}>{headerTitle}</Text><Text style={s.subtitle}>{tab==='Explore'?'Discover a trail, find your people, make a little room for adventure.':tab==='Community'?'Real moments, useful notes, and a shared love for the outdoors.':tab==='Trips'?'Small groups, shared plans, and a place for everyone.':'Every mile has a memory. Keep yours here.'}</Text></View>{wide&&<Text style={s.edition}>THE OUTDOOR COLLECTIVE{ '\n' }EST. 2026 ↗</Text>}</View>
-      {tab==='Explore'&&<>{!!apiUrl&&<Button title="Import GPX trail" quiet onPress={()=>setRouteEditor(true)}/>}
-        <View style={[s.hero,{height:wide?300:340}]}><View style={StyleSheet.absoluteFill}><MountainArt color="#799389"/></View><View style={[s.heroPanel,{maxWidth:wide?'49%':'85%'}]}><Text style={s.heroEyebrow}>TAKE THE SCENIC ROUTE</Text><Text style={[s.heroTitle,{fontSize:wide?38:32}]}>A little higher.{ '\n' }A little closer.</Text><Text style={s.heroCopy}>Find your next mountain moment{ '\n' }in the heart of the Himalayas.</Text><Pressable accessibilityRole="button" onPress={()=>setSelected(state.treks[0])} style={s.heroButton}><Text style={s.heroButtonText}>Explore Chandrashila</Text><Icon name="arrow" size={18} color="#f9f8ed"/></Pressable></View><View style={s.artCredit}><Text style={s.artCreditText}>ILLUSTRATED LANDSCAPE · DEMO</Text></View></View>
-        <View style={[s.searchRow,!wide&&{flexWrap:'wrap'}]}><View style={s.searchBox}><Icon name="search" size={20}/><TextInput accessibilityLabel="Search trails" placeholder="Search trails, places, or a little inspiration…" placeholderTextColor="#8b948d" value={query} onChangeText={setQuery} style={s.searchInput}/>{!!query&&<Pressable accessibilityLabel="Clear search" onPress={()=>setQuery('')}><Icon name="close" size={18}/></Pressable>}</View><Chip title={savedOnly?'✓ Saved trails':'Saved trails'} active={savedOnly} onPress={()=>setSavedOnly(!savedOnly)}/></View>
-        <View style={[s.rowBetween,{marginBottom:22,flexWrap:'wrap',gap:12}]}><View><Text style={s.sectionTitle}>A trail for every kind of day</Text><Text style={s.bodySmall}>{trails.length} sample trails to get you started</Text></View><View style={[s.row,{flexWrap:'wrap'}]}>{['All','Easy','Moderate','Hard'].map(d=><Chip key={d} title={d==='All'?'All trails':d} active={difficulty===d} onPress={()=>setDifficulty(d)}/>)}</View></View>
-        <View style={s.grid}>{trails.map((t,i)=><TrailCard key={t.id} trek={t} index={i}/>)}</View>
-        {!trails.length&&<View style={s.empty}><Icon name="explore" size={36}/><Text style={s.sectionTitle}>A different path awaits</Text><Text style={s.body}>Try another search or clear your filters.</Text><Button title="Reset filters" onPress={()=>{setQuery('');setDifficulty('All');setSavedOnly(false);}} quiet/></View>}
-        <View style={s.communityBanner}><View style={{flex:1}}><Label>FIND YOUR TRIBE</Label><Text style={s.sectionTitle}>The best part of a trek? Who you share it with.</Text><Text style={s.bodySmall}>Meet a small group for your next day outside.</Text></View><Button title="Find a group →" onPress={()=>navigate('Trips')} quiet/></View>
-      </>}
-      {tab==='Community'&&<><View style={[s.rowBetween,{marginBottom:24}]}><Text style={s.sectionTitle}>Trail journal</Text><Button title="+ Share a story" onPress={()=>setComposer(true)}/></View><View style={s.feedLayout}><View style={{flex:1,gap:20}}>{state.posts.map(post=>{const trek=state.treks.find(t=>t.id===post.trekId)!;return <View style={s.postCard} key={post.id}><View style={[s.row,{padding:22}]}><Avatar initials={post.initials}/><View style={{flex:1}}><Text style={s.person}>{post.author}</Text>{!!apiUrl&&post.userId!==state.profile.id&&<Button title="Block author" quiet disabled={busy} onPress={()=>blockAuthor(post.userId)}/>}<Text style={s.bodySmall}>{trek.title} · {date(post.createdAt)}</Text></View><Text style={s.condition}>{post.condition}</Text></View><View style={{height:wide?270:190}}><MountainArt color={trek.color}/></View><View style={{padding:22,gap:16}}><Text style={s.body}>{post.content}</Text><Text style={s.bodySmall}>Observed {date(post.observedAt)} · {'★'.repeat(post.rating)} · Sample trail artwork</Text><View style={s.row}><Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={`${post.likedBy.includes(state.profile.id)?'Unlike':'Like'} post by ${post.author}`} onPress={()=>act({type:'like',postId:post.id,liked:!post.likedBy.includes(state.profile.id)})} style={s.action}><Icon name="heart" color={post.likedBy.includes(state.profile.id)?'#b45b40':muted} size={21}/><Text style={s.bodySmall}>{post.likedBy.length} likes</Text></Pressable><Pressable accessibilityRole="button" onPress={()=>setComments(post)} style={s.action}><Icon name="comment" size={21}/><Text style={s.bodySmall}>{state.comments.filter(c=>c.postId===post.id).length} comments</Text></Pressable></View></View></View>;})}</View>{wide&&<View style={s.aside}><Label>LEAVE IT BETTER</Label><Text style={s.sectionTitle}>Good trail karma.</Text><Text style={s.body}>Share what you learned. Date your trail conditions. Respect local communities. And always bring your litter home.</Text><View style={s.divider}/><Text style={s.bodySmall}>This demo uses sample stories and illustrations. Your new text reports are saved on this device, or in the connected demo API.</Text></View>}</View></>}
-      {tab==='Trips'&&<View style={s.grid}><Button title="Plan an outing" onPress={()=>setCreateTrip(true)}/>{!!apiUrl&&<Button title="Accept invitation" quiet onPress={()=>setInvite('')}/>}{state.trips.map(trip=>{const trek=state.treks.find(t=>t.id===trip.trekId)!;const membership=trip.members.find(m=>m.userId===state.profile.id);const count=trip.members.filter(m=>m.status==='accepted').length;return <View key={trip.id} style={[s.tripCard,{width:wide?'48.5%':'100%'}]}><View style={{height:190}}><MountainArt color={trek.color}/></View><View style={{padding:24,gap:14}}><Label>{date(trip.startsAt)} · {trek.difficulty.toUpperCase()}</Label><Text style={s.sectionTitle}>{trip.title}</Text><Text style={s.bodySmall}>{trek.title} · Hosted by {trip.organizer}</Text><View style={s.rowBetween}><Text style={s.body}>{count} / {trip.maxParticipants} places filled</Text><Text style={s.condition}>{trip.maxParticipants-count} spots left</Text></View>{!!apiUrl&&membership?.status==='accepted'&&<Button title="Open conversation" quiet onPress={()=>setChatTrip(trip.id)}/>}{!!apiUrl&&trip.routeVersionId&&<Button title="View outing route" quiet onPress={()=>{setBusy(true);pinnedRoute(trip.id).then(r=>setSelected({...trek,route:r.coordinates,routeVersionId:r.id,distanceKm:r.distanceKm,elevationM:r.elevationM,hasElevation:r.hasElevation})).catch(e=>setError(e.message)).finally(()=>setBusy(false));}}/>}{trip.organizerId===state.profile.id&&trip.members.filter(m=>m.status==='accepted'&&m.userId!==trip.organizerId).map(m=><View key={m.userId} style={s.rowBetween}><Text style={s.bodySmall}>Trekker ...{m.userId.slice(-4)}{m.role==='cohost'?' (cohost)':''}</Text><Button title={m.role==='cohost'?'Remove cohost':'Make cohost'} quiet disabled={busy||(m.role!=='cohost'&&trip.status==='closed')} onPress={()=>act({type:'cohost',tripId:trip.id,userId:m.userId,enabled:m.role!=='cohost'},'Cohost role updated.')}/></View>)}{trip.organizerId!==state.profile.id&&membership?.role==='cohost'&&<><Text style={s.person}>You are a cohost</Text>{trip.members.filter(m=>m.status==='pending').map(m=><View key={m.userId} style={s.rowBetween}><Text style={s.bodySmall}>Trekker ...{m.userId.slice(-4)} requested to join</Text><Button title="Approve" quiet disabled={busy||trip.status==='closed'} onPress={()=>act({type:'approve',tripId:trip.id,userId:m.userId},'Participant approved.')}/></View>)}</>}{trip.organizerId===state.profile.id?<>{!!apiUrl&&<Button title="Create invitation" quiet disabled={busy||trip.status==='closed'} onPress={()=>{setBusy(true);createInvitation(trip.id).then(v=>setInvite(v.token)).catch(e=>setError(e.message)).finally(()=>setBusy(false));}}/>}<Button title={trip.status==='closed'?'Outing cancelled':'Cancel outing'} quiet disabled={busy||trip.status==='closed'} onPress={()=>act({type:'cancel-trip',tripId:trip.id},'Outing cancelled.')}/><Text style={s.person}>You’re organizing this outing</Text>{trip.members.filter(m=>m.status==='pending').map(m=><View key={m.userId} style={s.rowBetween}><Text style={s.bodySmall}>Trekker …{m.userId.slice(-4)} requested to join</Text><Button title="Approve" disabled={busy} onPress={()=>act({type:'approve',tripId:trip.id,userId:m.userId},'Participant approved.')} quiet/></View>)}</>:membership?<><Text style={s.person}>{membership.status==='pending'?'Request sent · awaiting organizer approval':'You’re on the roster'}</Text><Button title={membership.status==='pending'?'Cancel request':'Leave outing'} quiet disabled={busy} onPress={()=>act({type:'leave',tripId:trip.id},'Your place request was removed.')}/></>:<Button title={trip.status==='closed'?'Outing closed':count>=trip.maxParticipants?'Outing full':'Request to join →'} disabled={busy||trip.status==='closed'||count>=trip.maxParticipants} onPress={()=>act({type:'join',tripId:trip.id},'Join request sent to the organizer.')}/>}</View></View>;})}</View>}
-      {tab==='Profile'&&<View style={s.profileLayout}><View style={[s.profileCard,{flex:1}]}>{!!apiUrl&&<Button title="Blocked people" quiet onPress={()=>setBlockSettings(true)}/>}<Button title="Edit profile" quiet onPress={()=>setEditProfile(true)}/><Avatar initials={state.profile.initials}/><Text style={s.title}>{state.profile.name}</Text><Text style={s.bodySmall}>@{state.profile.username} · {state.profile.level}</Text><Text style={[s.body,{maxWidth:500,textAlign:'center'}]}>{state.profile.bio}</Text><View style={s.stats}><View><Text style={s.statValue}>{state.profile.completed}</Text><Text style={s.bodySmall}>sample treks</Text></View><View><Text style={s.statValue}>{state.profile.distanceKm}</Text><Text style={s.bodySmall}>sample km</Text></View><View><Text style={s.statValue}>{saved.length}</Text><Text style={s.bodySmall}>saved trails</Text></View></View><Button title="Explore saved trails" quiet onPress={()=>{setSavedOnly(true);setQuery('');setDifficulty('All');navigate('Explore');}}/></View><View style={{flex:1,gap:20}}><View style={s.panel}><Label>PACKED & READY</Label><Text style={s.sectionTitle}>The gear list</Text>{state.profile.gear.map(g=><View style={s.row} key={g}><Icon name="check" size={18}/><Text style={s.body}>{g}</Text></View>)}</View><View style={s.panel}><Label>LITTLE MILESTONES</Label><Text style={s.sectionTitle}>Trail badges</Text><View style={[s.row,{flexWrap:'wrap'}]}>{state.profile.badges.map(b=><Text key={b} style={s.badge}>{b}</Text>)}</View><Text style={s.bodySmall}>Your profile and gear list are editable. Badges and activity totals are sample values in demo mode.</Text></View></View></View>}
-      <View style={s.footer}><View style={s.row}><Icon name="mountain" size={18}/><Text style={s.bodySmall}>Made for the way out.</Text></View><Text style={s.footerNote}>Demo data · Illustrative routes, not navigation guidance</Text></View>
-    </ScrollView>
-    {!wide&&<View style={s.bottomNav}>{tabs.map(t=><Pressable key={t} accessibilityRole="tab" accessibilityState={{selected:t===tab}} onPress={()=>navigate(t)} style={s.bottomItem}><Icon name={t.toLowerCase()} color={tab===t?green:'#939b94'}/><Text style={{fontSize:11,color:tab===t?green:muted,fontWeight:tab===t?'700':'400'}}>{t}</Text></Pressable>)}</View>}
-    <Modal visible={!!selected} animationType="slide" transparent onRequestClose={()=>setSelected(null)}><View style={s.modalBackdrop}><View style={s.modal}><ScrollView>{selected&&<><View style={{height:220}}><MountainArt color={selected.color}/></View><View style={s.modalBody}><View style={s.rowBetween}><Label>{selected.region.toUpperCase()}</Label><Pressable accessibilityRole="button" accessibilityLabel="Close trail details" onPress={()=>setSelected(null)}><Icon name="close"/></Pressable></View><Text style={s.title}>{selected.title}</Text><Text style={s.body}>{selected.description}</Text><View style={s.stats}>{[[`${selected.distanceKm} km`,'distance'],[`${selected.elevationM} m`,'ascent'],[selected.difficulty,'difficulty']].map(([v,k])=><View key={k}><Text style={[s.statValue,{fontSize:22}]}>{v}</Text><Text style={s.bodySmall}>{k}</Text></View>)}</View><Label>{selected.ownerId?'IMPORTED ROUTE PREVIEW · NO BASEMAP':'ROUTE PREVIEW · ILLUSTRATIVE ONLY'}</Label>{selected.hasElevation===false&&<Text style={s.bodySmall}>Elevation data was not available in this GPX file.</Text>}{!!apiUrl&&selected.ownerId===state.profile.id&&<Button title="Replace GPX route" quiet onPress={()=>{setRouteEditor(selected);setSelected(null);}}/>}<View style={{height:250}}><RouteArt points={selected.route}/></View><Text style={s.bodySmall}>Live basemaps, offline downloads, and GPS recording are not connected in this build.</Text><View style={[s.row,{flexWrap:'wrap'}]}>{selected.highlights.map(h=><Text key={h} style={s.badge}>{h}</Text>)}</View><Button title={saved.includes(selected.id)?'Saved to your trails ✓':'Save this trail'} disabled={busy} onPress={()=>act({type:'save',trekId:selected.id,saved:!saved.includes(selected.id)})}/><Button title="Find a group trek" quiet onPress={()=>{setSelected(null);navigate('Trips');}}/></View></>}</ScrollView></View></View></Modal>
-    <Composer visible={composer} state={state} busy={busy} onClose={()=>setComposer(false)} onSubmit={async cmd=>{const ok=await act(cmd,'Your trail story is published.');if(ok)setComposer(false);return ok;}}/>
-    {blockSettings&&<BlockSettings onClose={()=>setBlockSettings(false)} onChanged={refresh}/>}
-    {chatTrip&&<TripChat tripId={chatTrip} onClose={()=>setChatTrip(null)}/>}
-    {!!routeEditor&&<RouteEditor trek={typeof routeEditor==='object'?routeEditor:undefined} onClose={()=>setRouteEditor(false)} onImported={refresh}/>}
-    {invite!==null&&<InvitationSheet token={invite||undefined} onClose={()=>setInvite(null)} onAccepted={refresh}/>}
-    {editProfile&&<ProfileEditor profile={state.profile} busy={busy} onClose={()=>setEditProfile(false)} onSubmit={cmd=>act(cmd,'Profile updated.')}/>}
-    {createTrip&&<TripEditor treks={state.treks} busy={busy} onClose={()=>setCreateTrip(false)} onSubmit={cmd=>act(cmd,'Outing created.')}/>}
-    <Comments post={comments} state={state} busy={busy} onClose={()=>setComments(null)} onSubmit={cmd=>act(cmd)}/>
-  </SafeAreaView>;
+  function openTrail(trek: Trek) {
+    router.push({ pathname: "/trails/[id]", params: { id: trek.id } });
+  }
+  useEffect(() => {
+    if (notice) {
+      const timer = setTimeout(() => setNotice(""), 4500);
+      return () => clearTimeout(timer);
+    }
+  }, [notice]);
+  async function act(command: Command, message?: string) {
+    setBusy(true);
+    try {
+      setState(await dispatch(command));
+      if (message) setNotice(message);
+      return true;
+    } catch (e) {
+      setError((e as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function blockAuthor(id: string) {
+    setBusy(true);
+    setError("");
+    try {
+      await setBlock(id, true);
+      setComments(null);
+      setChatTrip(null);
+      setState(await loadState());
+      setNotice("Person blocked. Manage blocks in Profile.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  function showPinnedRoute(id: string, trek: Trek) {
+    setBusy(true);
+    pinnedRoute(id)
+      .then((r) =>
+        setPreview({
+          ...trek,
+          route: r.coordinates,
+          routeVersionId: r.id,
+          distanceKm: r.distanceKm,
+          elevationM: r.elevationM,
+          hasElevation: r.hasElevation,
+        }),
+      )
+      .catch((e) => setError(e.message))
+      .finally(() => setBusy(false));
+  }
+  function inviteToTrip(id: string) {
+    setBusy(true);
+    createInvitation(id)
+      .then((v) => setInvite(v.token))
+      .catch((e) => setError(e.message))
+      .finally(() => setBusy(false));
+  }
+  if (!state)
+    return (
+      <SafeAreaView style={s.loading}>
+        <Icon name="mountain" size={48} />
+        <Text style={s.title}>TrekTribe</Text>
+        {error ? (
+          <>
+            <Text style={s.body}>{error}</Text>
+            <Button title="Try again" onPress={refresh} />
+            {logout && (
+              <Button
+                title="Sign out"
+                onPress={() => logout().catch((e) => setError(e.message))}
+              />
+            )}
+          </>
+        ) : (
+          <ActivityIndicator color={green} />
+        )}
+      </SafeAreaView>
+    );
+  if (route.notFound || (route.trailId && !selected))
+    return (
+      <SafeAreaView style={s.loading}>
+        <Text style={s.title}>Page not found</Text>
+        <Text style={s.body}>This trail or page is unavailable.</Text>
+        <Button title="Back to Explore" onPress={() => router.replace("/")} />
+      </SafeAreaView>
+    );
+  const saved = state.saved[state.profile.id] || [];
+  const headerTitle = {
+    Explore: "Find your next outside.",
+    Community: "Stories from the trail.",
+    Trips: "Good trails. Better company.",
+    Profile: "Your trail story.",
+  }[tab];
+  function navigate(next: Tab) {
+    router.navigate(tabPaths[next]);
+    setError("");
+  }
+  return (
+    <SafeAreaView style={s.root}>
+      <StatusBar style="dark" />
+      <View style={[s.topbar, { paddingHorizontal: wide ? 44 : 20 }]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="TrekTribe home"
+          onPress={() => navigate("Explore")}
+          style={s.brand}
+        >
+          <View style={s.logo}>
+            <Icon name="mountain" color="#fff" size={26} />
+          </View>
+          <Text style={s.brandText}>
+            TrekTribe<Text style={{ color: "#91a47a" }}>.</Text>
+          </Text>
+        </Pressable>
+        {wide && (
+          <View style={s.nav}>
+            {tabs.map((t) => (
+              <Pressable
+                key={t}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: tab === t }}
+                onPress={() => navigate(t)}
+                style={[s.navItem, tab === t && s.navActive]}
+              >
+                <Text style={[s.navText, tab === t && { color: green }]}>
+                  {t}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+        <View style={s.row}>
+          <Text style={s.demoPill}>{mode}</Text>
+          {logout && (
+            <Button
+              title="Sign out"
+              quiet
+              disabled={busy}
+              onPress={() => logout().catch((e) => setError(e.message))}
+            />
+          )}{" "}
+          {wide && <Avatar initials={state.profile.initials} small />}
+        </View>
+      </View>
+      {!!error && (
+        <View accessibilityRole="alert" style={s.error}>
+          <Text style={{ color: "#842f24", flex: 1 }}>{error}</Text>
+          <Pressable
+            accessibilityLabel="Dismiss error"
+            onPress={() => setError("")}
+          >
+            <Icon name="close" color="#842f24" />
+          </Pressable>
+        </View>
+      )}
+      {!!notice && (
+        <View accessibilityLiveRegion="polite" style={s.notice}>
+          <Icon name="check" size={18} />
+          <Text style={s.bodySmall}>{notice}</Text>
+        </View>
+      )}
+      <ScrollView
+        contentContainerStyle={[
+          s.content,
+          { paddingHorizontal: wide ? 44 : 20 },
+        ]}
+      >
+        <View style={s.pageHeader}>
+          <View>
+            <Label>LESS SCROLLING. MORE SUMMITS.</Label>
+            <Text style={[s.title, { fontSize: wide ? 38 : 30 }]}>
+              {headerTitle}
+            </Text>
+            <Text style={s.subtitle}>
+              {tab === "Explore"
+                ? "Discover a trail, find your people, make a little room for adventure."
+                : tab === "Community"
+                  ? "Real moments, useful notes, and a shared love for the outdoors."
+                  : tab === "Trips"
+                    ? "Small groups, shared plans, and a place for everyone."
+                    : "Every mile has a memory. Keep yours here."}
+            </Text>
+          </View>
+          {wide && (
+            <Text style={s.edition}>
+              THE OUTDOOR COLLECTIVE{"\n"}EST. 2026 ↗
+            </Text>
+          )}
+        </View>
+        {tab === "Explore" && (
+          <ExploreScreen
+            state={state}
+            wide={wide}
+            width={width}
+            saved={saved}
+            busy={busy}
+            act={act}
+            openTrail={openTrail}
+            onImport={() => setRouteEditor(true)}
+            navigate={navigate}
+          />
+        )}
+        {tab === "Community" && (
+          <CommunityScreen
+            state={state}
+            wide={wide}
+            busy={busy}
+            act={act}
+            onForum={() => setForum(true)}
+            onCompose={() => setComposer(true)}
+            onComments={setComments}
+            blockAuthor={blockAuthor}
+          />
+        )}
+        {tab === "Trips" && (
+          <TripsScreen
+            state={state}
+            wide={wide}
+            busy={busy}
+            act={act}
+            onCreate={() => setCreateTrip(true)}
+            onInvite={() => setInvite("")}
+            onChat={setChatTrip}
+            onPinnedRoute={showPinnedRoute}
+            onCreateInvitation={inviteToTrip}
+          />
+        )}
+        {tab === "Profile" && (
+          <ProfileScreen
+            state={state}
+            saved={saved}
+            onBlocks={() => setBlockSettings(true)}
+            onEdit={() => setEditProfile(true)}
+            onSavedTrails={() => {
+              setSavedOnly(true);
+              setQuery("");
+              setDifficulty("All");
+              navigate("Explore");
+            }}
+          />
+        )}
+        <View style={s.footer}>
+          <View style={s.row}>
+            <Icon name="mountain" size={18} />
+            <Text style={s.bodySmall}>Made for the way out.</Text>
+          </View>
+          <Text style={s.footerNote}>
+            Demo data · Illustrative routes, not navigation guidance
+          </Text>
+        </View>
+      </ScrollView>
+      {!wide && (
+        <View style={s.bottomNav}>
+          {tabs.map((t) => (
+            <Pressable
+              key={t}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: t === tab }}
+              onPress={() => navigate(t)}
+              style={s.bottomItem}
+            >
+              <Icon
+                name={t.toLowerCase()}
+                color={tab === t ? green : "#939b94"}
+              />
+              <Text
+                style={{
+                  fontSize: 11,
+                  color: tab === t ? green : muted,
+                  fontWeight: tab === t ? "700" : "400",
+                }}
+              >
+                {t}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+      <Modal
+        visible={!!selected && !routeEditor}
+        animationType="slide"
+        transparent
+        onRequestClose={() => closeTrail()}
+      >
+        <View style={s.modalBackdrop}>
+          <View style={s.modal}>
+            <ScrollView>
+              {selected && (
+                <>
+                  <View style={{ height: 220 }}>
+                    <MountainArt color={selected.color} />
+                  </View>
+                  <View style={s.modalBody}>
+                    <View style={s.rowBetween}>
+                      <Label>{selected.region.toUpperCase()}</Label>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Close trail details"
+                        onPress={() => closeTrail()}
+                      >
+                        <Icon name="close" />
+                      </Pressable>
+                    </View>
+                    <Text style={s.title}>{selected.title}</Text>
+                    <Text style={s.body}>{selected.description}</Text>
+                    <View style={s.stats}>
+                      {[
+                        [`${selected.distanceKm} km`, "distance"],
+                        [`${selected.elevationM} m`, "ascent"],
+                        [selected.difficulty, "difficulty"],
+                      ].map(([v, k]) => (
+                        <View key={k}>
+                          <Text style={[s.statValue, { fontSize: 22 }]}>
+                            {v}
+                          </Text>
+                          <Text style={s.bodySmall}>{k}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <Label>
+                      {selected.ownerId
+                        ? "IMPORTED ROUTE PREVIEW · NO BASEMAP"
+                        : "ROUTE PREVIEW · ILLUSTRATIVE ONLY"}
+                    </Label>
+                    {selected.hasElevation === false && (
+                      <Text style={s.bodySmall}>
+                        Elevation data was not available in this GPX file.
+                      </Text>
+                    )}
+                    {!!apiUrl && selected.ownerId === state.profile.id && (
+                      <Button
+                        title="Replace GPX route"
+                        quiet
+                        onPress={() => {
+                          setRouteEditor(selected);
+                        }}
+                      />
+                    )}
+                    <View style={{ height: 250 }}>
+                      <RouteMap key={selected.id} points={selected.route} />
+                    </View>
+                    <Text style={s.bodySmall}>
+                      Offline downloads and GPS recording are
+                      not connected in this build.
+                    </Text>
+                    <View style={[s.row, { flexWrap: "wrap" }]}>
+                      {selected.highlights.map((h) => (
+                        <Text key={h} style={s.badge}>
+                          {h}
+                        </Text>
+                      ))}
+                    </View>
+                    <Button
+                      title={
+                        saved.includes(selected.id)
+                          ? "Saved to your trails ✓"
+                          : "Save this trail"
+                      }
+                      disabled={busy}
+                      onPress={() =>
+                        act({
+                          type: "save",
+                          trekId: selected.id,
+                          saved: !saved.includes(selected.id),
+                        })
+                      }
+                    />
+                    <Button
+                      title="Find a group trek"
+                      quiet
+                      onPress={() => {
+                        setPreview(null);
+                        navigate("Trips");
+                      }}
+                    />
+                  </View>
+                </>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      <Composer
+        visible={composer}
+        state={state}
+        busy={busy}
+        onClose={() => setComposer(false)}
+        onSubmit={async (cmd) => {
+          const ok = await act(cmd, "Your trail story is published.");
+          if (ok) setComposer(false);
+          return ok;
+        }}
+      />
+      {blockSettings && (
+        <BlockSettings
+          onClose={() => setBlockSettings(false)}
+          onChanged={refresh}
+        />
+      )}
+      {forum && (
+        <Forum userId={state.profile.id} onClose={() => setForum(false)} />
+      )}
+      {chatTrip && (
+        <TripChat
+          userId={state.profile.id}
+          tripId={chatTrip}
+          onClose={() => setChatTrip(null)}
+        />
+      )}
+      {!!routeEditor && (
+        <RouteEditor
+          trek={typeof routeEditor === "object" ? routeEditor : undefined}
+          onClose={() => setRouteEditor(false)}
+          onImported={refresh}
+        />
+      )}
+      {invite !== null && (
+        <InvitationSheet
+          token={invite || undefined}
+          onClose={() => setInvite(null)}
+          onAccepted={refresh}
+        />
+      )}
+      {editProfile && (
+        <ProfileEditor
+          profile={state.profile}
+          busy={busy}
+          onClose={() => setEditProfile(false)}
+          onSubmit={(cmd) => act(cmd, "Profile updated.")}
+        />
+      )}
+      {createTrip && (
+        <TripEditor
+          treks={state.treks}
+          busy={busy}
+          onClose={() => setCreateTrip(false)}
+          onSubmit={(cmd) => act(cmd, "Outing created.")}
+        />
+      )}
+      <Comments
+        post={comments}
+        state={state}
+        busy={busy}
+        onClose={() => setComments(null)}
+        onSubmit={(cmd) => act(cmd)}
+      />
+    </SafeAreaView>
+  );
 }
 
-function Composer({visible,state,busy,onClose,onSubmit}:{visible:boolean;state:State;busy:boolean;onClose:()=>void;onSubmit:(c:Command)=>Promise<boolean>}){
-  const [requestId,resetRequestId]=useRequestId();
-  const [content,setContent]=useState(''),[trekId,setTrekId]=useState(state.treks[0]?.id||''),[rating,setRating]=useState(5),[condition,setCondition]=useState('Clear'),[observed,setObserved]=useState(new Date().toISOString().slice(0,10)),[formError,setFormError]=useState('');
-  return <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}><View style={s.modalBackdrop}><View style={s.modal}><ScrollView contentContainerStyle={s.modalBody}><View style={s.rowBetween}><Text style={s.sectionTitle}>Share a trail story</Text><Pressable accessibilityLabel="Close story editor" onPress={onClose}><Icon name="close"/></Pressable></View><Text style={s.bodySmall}>Text reports are ready to try. Photo and video uploads will arrive with cloud storage integration.</Text><Label>YOUR TRAIL</Label><View style={[s.row,{flexWrap:'wrap'}]}>{state.treks.map(t=><Chip key={t.id} title={t.title} active={trekId===t.id} onPress={()=>setTrekId(t.id)}/>)}</View><Label>THE STORY</Label><TextInput accessibilityLabel="Your trail story" multiline value={content} maxLength={5000} onChangeText={setContent} placeholder="What should the next trekker know?" style={[s.input,{height:140,textAlignVertical:'top'}]}/><Label>RATING</Label><Text style={s.bodySmall}>Each report contributes one rating to the trail average, including reports from repeat visits.</Text><View style={[s.row,{flexWrap:'wrap'}]}>{[1,2,3,4,5].map(n=><Chip key={n} title={`${n} ★`} active={rating===n} onPress={()=>setRating(n)}/>)}</View><Label>CONDITIONS</Label><View style={[s.row,{flexWrap:'wrap'}]}>{['Clear','Muddy','Snow','Blocked','Unknown'].map(c=><Chip key={c} title={c} active={condition===c} onPress={()=>setCondition(c)}/>)}</View><Label>OBSERVED ON (YYYY-MM-DD)</Label><TextInput accessibilityLabel="Observation date" value={observed} onChangeText={setObserved} style={s.input}/>{!!formError&&<Text accessibilityRole="alert" style={{color:'#a04230'}}>{formError}</Text>}<Button title={busy?'Publishing…':'Publish story'} disabled={busy||!content.trim()} onPress={async()=>{const ok=await onSubmit({type:'post',id:requestId({trekId,content,rating,condition,observed}),trekId,content,rating,condition,observedAt:observed});if(ok){resetRequestId();setContent('');setFormError('');}else setFormError('Could not publish. Check your date and connection, then try again.');}}/></ScrollView></View></View></Modal>;
+function Composer({
+  visible,
+  state,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  visible: boolean;
+  state: State;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (c: Command) => Promise<boolean>;
+}) {
+  const [requestId, resetRequestId] = useRequestId();
+  const [content, setContent] = useState(""),
+    [trekId, setTrekId] = useState(state.treks[0]?.id || ""),
+    [rating, setRating] = useState(5),
+    [condition, setCondition] = useState("Clear"),
+    [observed, setObserved] = useState(new Date().toISOString().slice(0, 10)),
+    [formError, setFormError] = useState("");
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={s.modalBackdrop}>
+        <View style={s.modal}>
+          <ScrollView contentContainerStyle={s.modalBody}>
+            <View style={s.rowBetween}>
+              <Text style={s.sectionTitle}>Share a trail story</Text>
+              <Pressable
+                accessibilityLabel="Close story editor"
+                onPress={onClose}
+              >
+                <Icon name="close" />
+              </Pressable>
+            </View>
+            <Text style={s.bodySmall}>
+              Text reports are ready to try. Photo and video uploads will arrive
+              with cloud storage integration.
+            </Text>
+            <Label>YOUR TRAIL</Label>
+            <View style={[s.row, { flexWrap: "wrap" }]}>
+              {state.treks.map((t) => (
+                <Chip
+                  key={t.id}
+                  title={t.title}
+                  active={trekId === t.id}
+                  onPress={() => setTrekId(t.id)}
+                />
+              ))}
+            </View>
+            <Label>THE STORY</Label>
+            <TextInput
+              accessibilityLabel="Your trail story"
+              multiline
+              value={content}
+              maxLength={5000}
+              onChangeText={setContent}
+              placeholder="What should the next trekker know?"
+              style={[s.input, { height: 140, textAlignVertical: "top" }]}
+            />
+            <Label>RATING</Label>
+            <Text style={s.bodySmall}>
+              Each report contributes one rating to the trail average, including
+              reports from repeat visits.
+            </Text>
+            <View style={[s.row, { flexWrap: "wrap" }]}>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <Chip
+                  key={n}
+                  title={`${n} ★`}
+                  active={rating === n}
+                  onPress={() => setRating(n)}
+                />
+              ))}
+            </View>
+            <Label>CONDITIONS</Label>
+            <View style={[s.row, { flexWrap: "wrap" }]}>
+              {["Clear", "Muddy", "Snow", "Blocked", "Unknown"].map((c) => (
+                <Chip
+                  key={c}
+                  title={c}
+                  active={condition === c}
+                  onPress={() => setCondition(c)}
+                />
+              ))}
+            </View>
+            <Label>OBSERVED ON (YYYY-MM-DD)</Label>
+            <TextInput
+              accessibilityLabel="Observation date"
+              value={observed}
+              onChangeText={setObserved}
+              style={s.input}
+            />
+            {!!formError && (
+              <Text accessibilityRole="alert" style={{ color: "#a04230" }}>
+                {formError}
+              </Text>
+            )}
+            <Button
+              title={busy ? "Publishing…" : "Publish story"}
+              disabled={busy || !content.trim()}
+              onPress={async () => {
+                const ok = await onSubmit({
+                  type: "post",
+                  id: requestId({
+                    trekId,
+                    content,
+                    rating,
+                    condition,
+                    observed,
+                  }),
+                  trekId,
+                  content,
+                  rating,
+                  condition,
+                  observedAt: observed,
+                });
+                if (ok) {
+                  resetRequestId();
+                  setContent("");
+                  setFormError("");
+                } else
+                  setFormError(
+                    "Could not publish. Check your date and connection, then try again.",
+                  );
+              }}
+            />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
 }
-function Comments({post,state,busy,onClose,onSubmit}:{post:Post|null;state:State;busy:boolean;onClose:()=>void;onSubmit:(c:Command)=>Promise<boolean>}){
-  const [requestId,resetRequestId]=useRequestId();
-  const [body,setBody]=useState(''),[failed,setFailed]=useState(false);
-  return <Modal visible={!!post} transparent animationType="slide" onRequestClose={onClose}><View style={s.modalBackdrop}><View style={s.modal}><ScrollView contentContainerStyle={s.modalBody}><View style={s.rowBetween}><Text style={s.sectionTitle}>Around the campfire</Text><Pressable accessibilityLabel="Close comments" onPress={onClose}><Icon name="close"/></Pressable></View>{state.comments.filter(c=>c.postId===post?.id).map(c=><View key={c.id} style={s.comment}><Text style={s.person}>{c.author}</Text><Text style={s.body}>{c.body}</Text></View>)}{!state.comments.some(c=>c.postId===post?.id)&&<Text style={s.body}>Be the first to share a thought or ask a question.</Text>}<TextInput accessibilityLabel="Write a comment" placeholder="Keep the conversation kind…" value={body} onChangeText={setBody} maxLength={1000} multiline style={[s.input,{minHeight:85}]}/>{failed&&<Text style={{color:'#a04230'}}>Could not send. Please try again.</Text>}<Button title="Post comment" disabled={busy||!body.trim()} onPress={async()=>{if(post){const ok=await onSubmit({type:'comment',id:requestId({postId:post.id,body}),postId:post.id,body});setFailed(!ok);if(ok){resetRequestId();setBody('');}}}}/></ScrollView></View></View></Modal>;
+function Comments({
+  post,
+  state,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  post: Post | null;
+  state: State;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (c: Command) => Promise<boolean>;
+}) {
+  const [requestId, resetRequestId] = useRequestId();
+  const [body, setBody] = useState(""),
+    [failed, setFailed] = useState(false);
+  return (
+    <Modal
+      visible={!!post}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={s.modalBackdrop}>
+        <View style={s.modal}>
+          <ScrollView contentContainerStyle={s.modalBody}>
+            <View style={s.rowBetween}>
+              <Text style={s.sectionTitle}>Around the campfire</Text>
+              <Pressable accessibilityLabel="Close comments" onPress={onClose}>
+                <Icon name="close" />
+              </Pressable>
+            </View>
+            {state.comments
+              .filter((c) => c.postId === post?.id)
+              .map((c) => (
+                <View key={c.id} style={s.comment}>
+                  <Text style={s.person}>{c.author}</Text>
+                  <Text style={s.body}>{c.body}</Text>
+                </View>
+              ))}
+            {!state.comments.some((c) => c.postId === post?.id) && (
+              <Text style={s.body}>
+                Be the first to share a thought or ask a question.
+              </Text>
+            )}
+            <TextInput
+              accessibilityLabel="Write a comment"
+              placeholder="Keep the conversation kind…"
+              value={body}
+              onChangeText={setBody}
+              maxLength={1000}
+              multiline
+              style={[s.input, { minHeight: 85 }]}
+            />
+            {failed && (
+              <Text style={{ color: "#a04230" }}>
+                Could not send. Please try again.
+              </Text>
+            )}
+            <Button
+              title="Post comment"
+              disabled={busy || !body.trim()}
+              onPress={async () => {
+                if (post) {
+                  const ok = await onSubmit({
+                    type: "comment",
+                    id: requestId({ postId: post.id, body }),
+                    postId: post.id,
+                    body,
+                  });
+                  setFailed(!ok);
+                  if (ok) {
+                    resetRequestId();
+                    setBody("");
+                  }
+                }
+              }}
+            />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
 }
-
-const s=StyleSheet.create({
- root:{flex:1,backgroundColor:'#f8f8f2'},loading:{flex:1,alignItems:'center',justifyContent:'center',gap:20,padding:30},
- topbar:{height:88,backgroundColor:'#fcfcf7',borderBottomWidth:1,borderBottomColor:'#e5e8df',flexDirection:'row',alignItems:'center',justifyContent:'space-between'},brand:{flexDirection:'row',alignItems:'center',gap:10},logo:{width:40,height:40,borderRadius:12,backgroundColor:green,alignItems:'center',justifyContent:'center'},brandText:{fontSize:25,fontWeight:'800',color:ink,letterSpacing:-1},nav:{flexDirection:'row',height:'100%',gap:32},navItem:{justifyContent:'center',borderBottomWidth:3,borderBottomColor:'transparent',paddingHorizontal:4},navActive:{borderBottomColor:green},navText:{fontSize:14,color:muted,fontWeight:'600'},demoPill:{fontSize:10,color:green,backgroundColor:'#edf0e4',paddingHorizontal:10,paddingVertical:7,borderRadius:20},
- content:{maxWidth:1440,width:'100%',alignSelf:'center',paddingTop:36,paddingBottom:24},pageHeader:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:30},eyebrow:{fontSize:10,fontWeight:'700',letterSpacing:1.9,color:'#71806c',marginBottom:10},title:{fontSize:31,lineHeight:43,fontWeight:'700',color:ink,letterSpacing:-1.1},subtitle:{color:muted,fontSize:14,lineHeight:23,marginTop:8,maxWidth:700},edition:{fontSize:9,lineHeight:19,letterSpacing:1.5,color:muted,textAlign:'right'},
- hero:{borderRadius:20,overflow:'hidden',marginBottom:28},heroPanel:{height:'100%',padding:30,backgroundColor:'rgba(24,54,42,0.94)',justifyContent:'center'},heroEyebrow:{fontSize:9,color:'#c4d0ae',letterSpacing:2,fontWeight:'700',marginBottom:13},heroTitle:{color:'#f8f4e4',fontWeight:'600',letterSpacing:-1.1,lineHeight:43},heroCopy:{color:'#cbd4c7',fontSize:13,lineHeight:20,marginTop:12},heroButton:{flexDirection:'row',alignItems:'center',gap:15,marginTop:23},heroButtonText:{fontSize:12,fontWeight:'700',color:'#f9f8ed'},artCredit:{position:'absolute',right:16,bottom:13},artCreditText:{fontSize:7,color:'#e2e8d6',letterSpacing:1.2},
- searchRow:{flexDirection:'row',gap:12,marginBottom:30,alignItems:'center'},searchBox:{flex:1,minWidth:220,flexDirection:'row',alignItems:'center',gap:12,borderWidth:1,borderColor:'#dfe5d8',backgroundColor:'#fff',borderRadius:12,paddingHorizontal:16,height:52},searchInput:{flex:1,fontSize:13,color:ink,height:'100%'},row:{flexDirection:'row',alignItems:'center',gap:10},rowBetween:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:10},sectionTitle:{fontSize:22,fontWeight:'600',color:ink,letterSpacing:-0.6,lineHeight:29},body:{fontSize:14,color:'#5d6c61',lineHeight:23},bodySmall:{fontSize:12,color:muted,lineHeight:20},chip:{paddingHorizontal:15,paddingVertical:10,borderRadius:24,borderWidth:1,borderColor:'#dde3d7',backgroundColor:'#fcfcf8'},chipActive:{backgroundColor:green,borderColor:green},chipText:{fontSize:11,fontWeight:'600',color:'#61705f'},grid:{flexDirection:'row',flexWrap:'wrap',gap:20},trailCard:{borderRadius:16,backgroundColor:'#fff',borderWidth:1,borderColor:'#e2e7dc',overflow:'hidden',marginBottom:2},cardArt:{height:186},difficulty:{position:'absolute',top:13,left:14,paddingHorizontal:10,paddingVertical:5,borderRadius:20,backgroundColor:'#f4f4e8'},tagText:{fontSize:10,fontWeight:'600',color:green},cardBody:{padding:19},location:{fontSize:8,fontWeight:'600',letterSpacing:1.15,color:'#819079'},cardTitle:{fontSize:21,fontWeight:'600',color:ink,letterSpacing:-0.6,marginTop:8,marginBottom:6},cardFooter:{marginTop:16,paddingTop:12,borderTopWidth:1,borderTopColor:'#eff0e8'},communityBanner:{marginTop:32,borderRadius:16,backgroundColor:'#ecf0e3',padding:24,flexDirection:'row',alignItems:'center',flexWrap:'wrap',gap:20},
- button:{paddingHorizontal:19,paddingVertical:13,borderRadius:9,backgroundColor:green,alignItems:'center',justifyContent:'center'},buttonText:{fontSize:12,fontWeight:'700',color:'#fff'},quiet:{backgroundColor:'#e8edde',borderWidth:1,borderColor:'#d4dfca'},empty:{alignItems:'center',padding:45,gap:15},footer:{paddingTop:36,marginTop:22,borderTopWidth:1,borderTopColor:'#e0e5d9',flexDirection:'row',justifyContent:'space-between',flexWrap:'wrap',gap:12},footerNote:{fontSize:10,color:'#909a8e'},bottomNav:{height:66,flexDirection:'row',justifyContent:'space-around',borderTopWidth:1,borderTopColor:'#e0e5d9',backgroundColor:'#fcfcf7'},bottomItem:{alignItems:'center',justifyContent:'center',gap:5,flex:1},
- avatar:{width:44,height:44,borderRadius:22,backgroundColor:'#e9ddc7',alignItems:'center',justifyContent:'center'},avatarText:{fontSize:12,fontWeight:'700',color:'#796a4d'},person:{fontSize:14,fontWeight:'600',color:ink},postCard:{backgroundColor:'#fff',borderWidth:1,borderColor:'#e0e6d9',borderRadius:16,overflow:'hidden'},condition:{fontSize:10,color:green,backgroundColor:'#eff2e5',paddingHorizontal:10,paddingVertical:7,borderRadius:15},action:{flexDirection:'row',alignItems:'center',gap:8,paddingVertical:6,marginRight:12},feedLayout:{flexDirection:'row',gap:28,maxWidth:1100},aside:{width:270,backgroundColor:'#edf0e5',padding:24,borderRadius:16,alignSelf:'flex-start',gap:14},divider:{height:1,backgroundColor:'#d9dfd0',marginVertical:6},tripCard:{borderWidth:1,borderColor:'#dfe5d8',borderRadius:16,overflow:'hidden',backgroundColor:'#fff'},
- profileLayout:{flexDirection:'row',flexWrap:'wrap',gap:24},profileCard:{minWidth:280,padding:28,backgroundColor:'#fff',borderRadius:16,borderWidth:1,borderColor:'#dfe5d8',alignItems:'center',gap:16},stats:{flexDirection:'row',justifyContent:'space-around',gap:22,width:'100%',paddingVertical:20,borderTopWidth:1,borderBottomWidth:1,borderColor:'#e7ebdf'},statValue:{fontSize:30,fontWeight:'600',color:green,letterSpacing:-1},panel:{minWidth:280,padding:25,borderRadius:16,borderWidth:1,borderColor:'#dfe5d8',backgroundColor:'#fff',gap:15},badge:{fontSize:11,color:green,backgroundColor:'#eef0df',paddingHorizontal:12,paddingVertical:10,borderRadius:9},
- modalBackdrop:{flex:1,backgroundColor:'rgba(12,32,23,0.5)',justifyContent:'center',alignItems:'center',padding:18},modal:{backgroundColor:'#fcfcf7',width:'100%',maxWidth:660,maxHeight:'94%',borderRadius:20,overflow:'hidden'},modalBody:{padding:24,gap:18},input:{backgroundColor:'#fff',borderWidth:1,borderColor:'#d7dfcf',borderRadius:10,padding:14,fontSize:14,color:ink},error:{backgroundColor:'#f8e6df',padding:14,flexDirection:'row',gap:12},notice:{backgroundColor:'#e3eddd',paddingVertical:10,paddingHorizontal:24,flexDirection:'row',gap:10,alignItems:'center'},comment:{padding:16,backgroundColor:'#edf0e7',borderRadius:10,gap:6}
-});

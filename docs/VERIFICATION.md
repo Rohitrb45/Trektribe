@@ -1,5 +1,55 @@
 # Verification report — first milestone
 
+## Saved chat drafts — 2026-10-22
+
+Implementation commit: `d3df205`, branch `feature/trektribe-multiuser`.
+
+- Added AsyncStorage drafts scoped to API URL, account UUID and outing UUID. The composer restores saved text, shows storage status, retries failed storage operations, and supports explicit discard. Normal closing waits for queued writes.
+- Message IDs are saved before sending and retained for unconfirmed retries. Acknowledgments remove only a matching draft, protecting a newer draft from a late acknowledgment within the same app runtime.
+- Local typechecking, all 25 unit/HTTP tests, API compilation and web export passed. Both jobs passed in [saved draft CI](https://github.com/Rohitrb45/Trektribe/actions/runs/39788017912), including PostgreSQL/Redis integration tests and Android/iOS bundle exports.
+- Draft tests use a storage adapter to exercise reopening, account/API/outing isolation, delayed writes, acknowledgment races, failed writes, invalid data and discard. Existing integration tests cover server-side message idempotency.
+- No migration or new dependency is required. Manual UI, physical-device storage durability and live sign-in remain unverified. Drafts use local unencrypted app storage, persist across sign-out for the same account, and are not synchronized across devices or concurrent browser tabs. A force-close before saving completes can lose the latest keystrokes.
+
+## Conversation presence — verified 2026-10-22
+
+Implementation commit: `a5d873a`, branch `feature/trektribe-multiuser`.
+
+- Added conversation-scoped presence with 10-second foreground heartbeats and 30-second per-device expiry. Local mode uses memory; multi-instance mode uses Redis server timestamps and expiring sorted sets. The client displays unique active participant names and clears presence when disconnected or backgrounded.
+- Every presence request verifies authentication and accepted membership. Responses filter blocked users and recheck the viewer's membership. Disconnect cleanup removes only that socket's session; expired entries provide fallback cleanup after crashes.
+- Local typechecking, all 22 unit/HTTP tests, API compilation and web export passed before the interruption. Both jobs passed in [presence validation CI](https://github.com/Rohitrb45/Trektribe/actions/runs/39627190003), confirmed on resume: PostgreSQL/Redis integration tests, unit/HTTP tests, builds and Android/iOS bundle exports.
+- Tests cover cross-instance presence, multiple devices, nonmembers, forged identities, bilateral blocks, stale Redis timestamps, Redis permission failure and membership removal. Local expiry is tested with a controlled clock; Redis expiry cleanup is tested using an explicitly stale score rather than waiting 30 seconds.
+- No database migration is required. Redis ACL additions and manual validation are documented in `FEATURE_VALIDATION.md`. Physical-device foreground/background behavior, live OIDC, load-balancer behavior and crash timing remain unverified. Production startup remains disabled.
+
+## Chat across API instances — 2026-10-21
+
+Implementation commit: `87e5b6b`, branch `feature/trektribe-multiuser`.
+
+- Added Redis 6.3 client support for bounded, best-effort conversation-change notifications across API instances. PostgreSQL continues to store messages and coordinate outbox claims. Each receiving instance revalidates authentication and membership locally.
+- Added a database coordination lock to reject mixed local/Redis modes and multiple local dispatchers. Redis publication failures roll back outbox delivery markers for retry; Redis startup failure does not silently downgrade to local mode.
+- Local typechecking, all 21 unit/HTTP tests and API compilation passed. Both jobs passed in [Redis chat CI](https://github.com/Rohitrb45/Trektribe/actions/runs/39620637216), including PostgreSQL/Redis integration tests, web builds, and Android/iOS bundle exports.
+- The new integration scenario runs two HTTP/Socket.IO server instances with independent PostgreSQL pools. It verifies remote notifications, nonmember filtering, mixed-mode rejection, history access while Redis publishing is denied, successful retry after restoring publication, membership removal and continued operation after stopping one server. Publication failure is injected through a temporary Redis ACL user, not by shutting down the Redis service.
+- Presence, physical-device behavior, live OIDC, load-balancer configuration and Redis cluster testing remain pending. Notifications may be missed or duplicated; five-second sync and reconnect backfill remain authoritative. Production startup is still disabled.
+
+## Forum editing and moderation — 2026-10-21
+
+Implementation commit: `faa3b67`, branch `feature/trektribe-multiuser`.
+
+- Migration 011 adds revision-controlled author edits, soft deletion, reports with content snapshots, explicit moderator assignments and an audit table for decisions. Client controls include editing, deletion confirmation, reporting and moderator review.
+- Local typechecking, all 21 unit/HTTP tests, API compilation and web export passed after fixing an edit-payload type narrowing error.
+- Both jobs passed in [forum management CI](https://github.com/Rohitrb45/Trektribe/actions/runs/39611598057), including PostgreSQL/PostGIS integration tests and Android/iOS bundle exports.
+- Database tests cover concurrent edits, stale revisions, ownership, duplicate reports, preserved report evidence after editing, dismissal/removal, repeated decisions, revoked moderator access and prevention of restoring removed content through ordinary endpoints.
+- No moderator is assigned automatically. Deletion hides retained records; it is not permanent erasure. Appeals, restoration, bulk moderation and realtime notifications remain pending. Live sign-in, manual UI and physical-device validation were not performed.
+
+## Community discussions — 2026-10-21
+
+Implementation commit: `a8abdd4`, branch `feature/trektribe-multiuser`.
+
+- Migration 010 adds persistent discussion threads and replies. The connected Community screen supports creation, paginated browsing, replies, manual refresh and author-only closing/reopening.
+- Strict request validation derives authorship from the session. Duplicate request IDs are idempotent only for the same actor/content; block checks apply before pagination and before accepting reply retries. Closing and replying serialize on the thread row.
+- Local typechecking, all 20 unit/HTTP tests, API compilation and web export passed. Both jobs passed in [forum validation CI](https://github.com/Rohitrb45/Trektribe/actions/runs/39609929571), including real PostgreSQL/PostGIS integration tests and Android/iOS bundle exports.
+- Integration coverage includes concurrent duplicate submissions, conflicting IDs, ownership, closing/reopening, paging, blocked replies/threads and persistence across connection pools.
+- Forum editing, deletion, moderation and realtime notifications remain pending. Drafts are not persisted after closing the screen. Live sign-in and physical-device behavior remain unverified; exports are not native binary builds.
+
 ## Outing cohosts — 2026-10-21
 
 Implementation commit: `856639e`, branch `feature/trektribe-multiuser`.
@@ -82,3 +132,106 @@ The app is a development milestone. Follow the README for a local run and inspec
 - Increased the HTTP test's startup deadline from roughly six seconds to 30 seconds, with bounded health requests and useful timeout diagnostics. The Windows test run needed about 25 seconds.
 - `npm audit fix` left 35 findings (12 moderate, 23 high). Forced changes were not applied because npm proposed incompatible Expo/React Native changes. Dependency remediation remains outstanding.
 - Docker was unavailable; PostgreSQL/PostGIS and native device behavior remain unverified.
+
+## Expo Router navigation (2026-10-22)
+
+- Clean `npm ci` completed using Node 22.23.3; Router 6 and native dependencies match Expo SDK 54.
+- TypeScript, all 26 unit/API tests, API compilation and web export passed.
+- Automated Chromium smoke test against the exported web app passed: tab URLs, browser Back/Forward, retained search filters, direct/reloaded trail details, detail-to-Trips navigation, missing-trail recovery, and mobile-width Profile navigation. No browser page errors were observed.
+- Browser history can remount the layout. Discovery preferences use a memory-only store and reset on explicit sign-out; persisted application data reloads through the existing adapter. Route changes dismiss transient dialogs and unmount chat/presence subscriptions.
+- The file routes currently use the existing application shell. Feature-screen extraction and generated API clients remain pending.
+- Physical Android/iOS behavior and real OIDC callbacks are not verified. Web deployment requires SPA path fallback. See FEATURE_VALIDATION.md for manual checks.
+- Android and iOS JavaScript exports passed after the history-filter fix; these are not native binary or device tests.
+
+## Feature-screen extraction (2026-10-22)
+
+- Previous navigation commit `36f523c` passed both GitHub Actions jobs (`database` and `check`): https://github.com/Rohitrb45/Trektribe/actions/runs/39794654398.
+- Extracted Explore, Community, Trips and Profile into typed screen modules; shared UI controls/styles moved out of App. The shell retains mutations and modal state, including pinned route and invitation requests. File-route components still delegate rendering through the shell.
+- TypeScript (including a mobile unused-import check), all 26 tests, API/web builds, and Android/iOS JavaScript exports passed.
+- Chromium checks against the exported web app passed for navigation/history, retained search, trail reload/direct links, missing-trail handling, mobile-width Profile, profile edits, saved-trail navigation, likes, report publishing and outing creation. No page errors were observed. Outing date validation correctly rejected a missing date before the test supplied a future date.
+- These checks used Local demo mode. No new live OIDC, physical-device, or connected-mode manual verification is claimed for this refactor. Generated API clients remain the next client integration milestone.
+## Generated core API client, first stage (2026-10-23)
+
+- Added a partial OpenAPI 3.1 contract covering nine core read/save/like operations, generated TypeScript schemas, and a typed fetch client used by the mobile OIDC resource loader and save/like actions.
+- `npm run api:check` verifies generated-file freshness in CI. Compile-time compatibility checks compare the five core response models against the generated schemas.
+- All 29 tests pass, including generated-client calls against the local HTTP API, current-token lookup, cursor serialization, false request values, structured/non-JSON errors, and coordinate validation.
+- Full-suite API startup twice exceeded the existing 30-second deadline with unrestricted worker concurrency; isolated client/API tests passed. Limiting test workers to four made the full suite pass in about seven seconds without extending the deadline.
+- TypeScript, API/web builds, and Android/iOS JavaScript exports passed. Chromium local-demo checks passed for navigation/history, retained filters, trail links, profile edits, saved trails, likes, reports and outing creation, with no page errors.
+- Prior screen-extraction CI passed both jobs: https://github.com/Rohitrb45/Trektribe/actions/runs/39801832797.
+- Live OIDC and physical-device behavior remain unverified. Other mutations, forum/moderation, blocking, GPX/invitations and chat HTTP endpoints still use the previous request adapter. This is not a complete generated API migration. See API_CLIENT.md.
+- Implementation commit `f58f0af` passed both CI jobs (`check` and `database`, including PostgreSQL/PostGIS and Redis): https://github.com/Rohitrb45/Trektribe/actions/runs/39962576279.
+
+## Generated core command mutations (2026-10-23)
+
+- Extended the contract from nine to 18 operations. All core command dispatch now uses a typed adapter: profile, reports/comments, outings, join/leave, approvals, cohost changes, saves and likes. Existing queueing and retry IDs are preserved.
+- Added drift checks comparing the nine new request schemas to server validators. API tests exercise each mutation, duplicate-report protection, and unauthorized cancellation rejection.
+- Generated-code freshness, TypeScript, all 31 tests, API/web builds, Android/iOS JavaScript exports and Chromium local-demo workflow checks passed.
+- An initial full-suite run timed out during API startup. The isolated API test and subsequent full-suite run without overlapping builds passed; the startup deadline and test assertions were retained.
+- Blocking, forums/moderation, GPX/routes, invitations and chat HTTP requests remain outside the generated contract. Live OIDC and physical-device testing are still pending.
+## Generated blocking and invitation clients (2026-10-23)
+
+- Extended contract coverage to 22 operations and migrated block-list, block/unblock, invitation creation and acceptance requests.
+- All 32 local tests, TypeScript, generated-code freshness, API/web builds and Android/iOS JavaScript exports passed.
+- Added a PostgreSQL-backed HTTP integration test for successful block/unblock, blocked-invitation rejection, invitation issuance and repeat acceptance. Database execution is tracked in CI below; no local PostgreSQL service is available.
+- Native-device and live OIDC verification remain pending. Forums, GPX/routes and chat HTTP endpoints remain to migrate.
+
+- Implementation `c34a09f` passed both CI jobs, including the new PostgreSQL HTTP round trip: https://github.com/Rohitrb45/Trektribe/actions/runs/39968230442.
+
+## Generated GPX and pinned-route client (2026-10-24)
+
+- Contract coverage increased to 25 operations: GPX import, replacement versions and pinned outing routes now use generated client calls.
+- GPX validation is shared with the API contract-drift test. Coordinate validation is reused for pinned routes.
+- All 34 tests, TypeScript, generated-code freshness, API/web builds and Android/iOS JavaScript exports passed. An initial API startup timeout passed on rerun without extending the deadline.
+- Extended the PostgreSQL HTTP test to cover import, immutable outing geometry after replacement, invalid GPX, and unauthorized replacement. Its CI result is recorded below.
+- Forum and chat HTTP migration, live OIDC, basemaps and physical-device validation remain pending.
+
+- Implementation `4ac97bd` passed both CI jobs, including the PostgreSQL pinned-route HTTP regression: https://github.com/Rohitrb45/Trektribe/actions/runs/40093092656.
+
+## Generated forum discussion lifecycle (2026-10-24)
+
+- Added six operations (31 total): capabilities, thread list/detail, creation, replies and close/reopen. Mobile thread/reply types now derive from the generated schema.
+- All 36 local tests, TypeScript, generated-code freshness and API/web builds passed. Creation-schema tests caught and corrected an initially missing UUID pattern.
+- Extended PostgreSQL HTTP coverage for duplicate thread/reply requests, reply pagination, closed-thread rejection and reopening. CI execution is recorded below.
+- Forum editing/removal/reporting/moderation and chat HTTP migration remain pending, as do live OIDC and device validation.
+
+- Android and iOS JavaScript exports also passed; these are not physical-device tests.
+
+- Implementation `f515bb3` passed both CI jobs, including PostgreSQL HTTP forum lifecycle checks: https://github.com/Rohitrb45/Trektribe/actions/runs/40095521852.
+
+## Generated forum management client (2026-10-26)
+
+- Extended the contract to 39 operations, adding typed thread/reply editing, removal, reporting, moderation queue and decisions.
+- Added server-schema drift and request serialization tests, plus PostgreSQL HTTP coverage for stale revisions, moderator authorization, repeated decisions and content removal.
+- All 38 local tests and API/web builds passed. The first suite run hit the existing API startup timeout; the full retry passed without changing the deadline or assertions.
+- Database execution is verified through CI; no local PostgreSQL service is available. Live OIDC and physical-device validation remain pending. Chat HTTP migration is next.
+- Generated-code freshness, TypeScript and Android/iOS JavaScript exports passed. Exports do not verify native-device behavior.
+
+- Implementation `18a3f27` passed both CI jobs (check and database), including the PostgreSQL forum management HTTP regression: https://github.com/Rohitrb45/Trektribe/actions/runs/40344665740.
+
+## Generated chat HTTP client (2026-10-27)
+
+- Added typed history/send adapters and contract schemas (41 operations total). The chat screen retains Socket.IO transport; no automatic fallback or retry was introduced.
+- Tests cover request IDs, fresh credentials, pagination and HTTP errors. PostgreSQL HTTP regression coverage includes duplicate/conflicting sends, history cursors, nonmember access and invalid bodies.
+- All 40 local tests, generated-schema freshness, TypeScript and the API build passed. The initial API startup timeout passed on full-suite retry without modifying its deadline.
+- Physical-device and live OIDC checks remain pending; this change adds HTTP coverage, not native validation. Socket.IO event contracts remain next.
+- Web export also passed; PostgreSQL CI execution is recorded below.
+
+- Implementation `cd9f9dc` passed both CI jobs (check and database), including PostgreSQL chat HTTP tests: https://github.com/Rohitrb45/Trektribe/actions/runs/40532462907.
+
+## Shared Socket.IO contracts (2026-10-27)
+
+- Added shared event types for send, sync, presence, away and change notifications, with discriminated success/error acknowledgments. Both mobile and API sockets use these contracts.
+- Extracted strict server input validators into the shared module; tests cover whitespace, length limits, forged identity, UUIDs and bounded numeric cursors. Existing wire payloads, retry IDs and membership checks are preserved.
+- TypeScript, all 41 local tests and the API build passed. An initial API startup timeout passed on full-suite retry without deadline changes.
+- Response types are compile-time checks, not runtime validation of arbitrary server responses. Live OIDC, device lifecycle and load-balancer validation remain pending.
+- Web export passed. PostgreSQL/Redis CI evidence is recorded below.
+
+- Implementation `f1201ad` passed both CI jobs (check and database), including PostgreSQL/Redis realtime regressions: https://github.com/Rohitrb45/Trektribe/actions/runs/40533874925.
+
+## Native map adapter (2026-10-27)
+
+- Added @rnmapbox/maps 10.3.15, Expo plugin and platform-specific trail detail rendering. Web and unavailable native maps retain a labeled illustration.
+- TypeScript, web export and Android/iOS JavaScript exports passed. Native binary compilation, public-token tile rendering and physical-device validation are still pending; SDK compatibility is not yet established by these exports.
+- Setup and acceptance steps: NATIVE_MAPS.md. Offline recording and media remain pending.
+
+- Implementation `5862084` passed check and database CI: https://github.com/Rohitrb45/Trektribe/actions/runs/40536526590. This does not include native binary builds.
