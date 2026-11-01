@@ -13,7 +13,11 @@ Official installation: https://rnmapbox.github.io/docs/install . The installed p
 
 ## Verification limits
 
-The Android x86_64 debug APK compiled, installed and displayed the application on the API 37 emulator. The public token was accepted by the Mapbox style API. Live map rendering is not yet verified: earlier emulator checks encountered disconnected Wi-Fi and SwiftShader shader limits; hardware-graphics acceptance remains pending. ARM64 Android, iOS, device lifecycle and attribution placement still need validation. No physical-device acceptance is claimed. Offline maps, GPS recording, user location and media uploads remain separate work.
+The Android x86_64 debug APK compiled, installed and displayed the application on the API 37 emulator. On 2026-11-01, hardware graphics rendered live terrain tiles and the sample route with camera framing, panning, double-tap zoom, Mapbox logo and an opening attribution dialog. A controlled missing-style HTTP 404 displayed the labeled fallback and retry button; restoring the normal style and tapping **Retry map** recovered the live map. A brief Home/application-resume transition preserved the map.
+
+Evidence: [live map](images/android-native-map.png), [failure fallback](images/android-map-fallback.png). The fallback screenshot includes Expo's development error notification from the intentional 404. The temporary test style was removed and the user's token was not changed.
+
+ARM64 Android, iOS, physical devices, process death, screen lock and extended lifecycle testing remain pending. Invalid-token and interrupted-network acceptance were not established by the 404 test; cached map resources can remain visible without a network connection. Offline downloads, GPS recording, user location and media uploads remain separate work.
 
 ## Windows Android build setup (2026-10-28)
 
