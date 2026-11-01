@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Text, View } from 'react-native';
+import { Button, Text, View } from 'react-native';
 import Constants from 'expo-constants';
 import type { RouteMapProps } from './RouteMap';
 import { RouteArt } from './Art';
@@ -16,7 +16,7 @@ export default function RouteMap({ points }: RouteMapProps) {
   if (points.length < 2 || points.some(([x,y]) => !Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x)>180 || Math.abs(y)>90)) {
     return <Text>Route geometry is unavailable.</Text>;
   }
-  if (!maps || failed || points.some(([,y])=>Math.abs(y)>85)) return <View style={{ flex: 1 }}><RouteArt points={points}/><Text>Illustrative route preview — live map unavailable.</Text></View>;
+  if (!maps || failed || points.some(([,y])=>Math.abs(y)>85)) return <View style={{ flex: 1 }}><View style={{ flex: 1, minHeight: 0 }}><RouteArt points={points}/></View><Text>Illustrative route preview — live map unavailable.</Text>{failed && <Button title="Retry map" onPress={()=>setFailed(false)}/>}</View>;
   const { MapView, Camera, ShapeSource, LineLayer } = maps;
   const xs=points.map(p=>p[0]), ys=points.map(p=>p[1]);
   const ne=[Math.min(180,Math.max(...xs)+0.001), Math.min(85,Math.max(...ys)+0.001)];

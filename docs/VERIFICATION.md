@@ -235,3 +235,11 @@ The app is a development milestone. Follow the README for a local run and inspec
 - Setup and acceptance steps: NATIVE_MAPS.md. Offline recording and media remain pending.
 
 - Implementation `5862084` passed check and database CI: https://github.com/Rohitrb45/Trektribe/actions/runs/40536526590. This does not include native binary builds.
+
+## Windows Android build and map recovery (2026-11-01)
+
+- Pinned Expo 54.0.37, added a Windows launcher with local JDK/SDK discovery and a short drive alias, and added Metro workspace resolution through that alias. Original pre-repair manifests remain in ignored local backups.
+- Removed a stray text node that prevented native rendering. Map failures expose a retry action; native and web fallback illustrations now leave room for their labels and controls.
+- `powershell -ExecutionPolicy Bypass -File T:/scripts/android.ps1 -BuildOnly -Architecture x86_64` passed: 248 tasks, 3m34s. This also verifies invocation through an existing drive alias. The earlier emulator install and application launch passed; this is a Metro-dependent debug APK, not a physical-device release.
+- Final TypeScript and web export passed; generated API contract freshness passed. Full regression runs passed 40/41 tests but twice exceeded the HTTP test's 30-second startup deadline. Direct API startup returned HTTP 200, and the isolated HTTP regression then passed in 18.1 seconds without changing its deadline. A fully green local concurrent suite is not claimed.
+- Public-token style API validation passed previously. Live route/tile rendering remains unverified after emulator Wi-Fi and SwiftShader failures. Hardware graphics, ARM64 Android, iOS and physical-device acceptance remain pending. No new PostgreSQL/Redis integration run was performed locally for this change.

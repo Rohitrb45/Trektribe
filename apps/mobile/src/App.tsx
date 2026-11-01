@@ -280,7 +280,7 @@ function Application({ logout }: { logout?: () => Promise<void> }) {
               disabled={busy}
               onPress={() => logout().catch((e) => setError(e.message))}
             />
-          )}{" "}
+          )}
           {wide && <Avatar initials={state.profile.initials} small />}
         </View>
       </View>
@@ -461,8 +461,8 @@ function Application({ logout }: { logout?: () => Promise<void> }) {
                     </View>
                     <Label>
                       {selected.ownerId
-                        ? "IMPORTED ROUTE PREVIEW · NO BASEMAP"
-                        : "ROUTE PREVIEW · ILLUSTRATIVE ONLY"}
+                        ? "IMPORTED ROUTE PREVIEW"
+                        : "ROUTE PREVIEW · SAMPLE GEOMETRY"}
                     </Label>
                     {selected.hasElevation === false && (
                       <Text style={s.bodySmall}>

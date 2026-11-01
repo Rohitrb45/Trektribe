@@ -36,4 +36,4 @@ Use Expo SQLite for sessions, points, sync cursors, and queued operations; Async
 
 Acceptance: a downloaded route can be inspected in airplane mode; supported recording interruptions preserve saved points; retrying a chunk never duplicates it.
 
-Native map adapter implementation (2026-10-27): trail details now use a Mapbox native component with a labeled fallback. Token configuration, native binary builds and device rendering remain pending. See [NATIVE_MAPS.md](NATIVE_MAPS.md).
+Native map progress (2026-11-01): trail details use a Mapbox native component with a labeled fallback and retry action. Public-token validation and Android x86_64 compilation/install/application launch passed. The Windows launcher handles JDK selection and short build paths. Live route/tile rendering, ARM64/iOS builds and physical-device acceptance remain pending. See [NATIVE_MAPS.md](NATIVE_MAPS.md).
