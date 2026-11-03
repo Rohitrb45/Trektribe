@@ -46,3 +46,11 @@ Expo is pinned to 54.0.37 with a root override to avoid mixing newer Expo peer d
 - Keep the Expo terminal running. Press `a` there to reopen the installed app. Use the Metro port printed in that terminal; it may be 8082 when 8081 is occupied.
 - If the map falls back to an illustration, connect the emulator to `AndroidWifi`, then tap **Retry map**. Use Hardware/Automatic emulator graphics: the tested SwiftShader configuration exceeded its vertex-uniform limit when rendering the outdoors style.
 - If a build still references old long CMake paths, rerun the helper with `-ResetNativeCache`. This removes only generated native build caches.
+
+## Basemap download controls (2026-11-03)
+
+Native trail details now offer Download map area, progress, Pause, Resume and Remove controls using the Mapbox offline SDK. Downloads use the same outdoors style as the live map, cover the route bounds plus a small margin, and include zoom levels 10–14. Areas wider or taller than 0.5 degrees, polar/dateline-spanning geometry and malformed routes are rejected before download. A SHA-256 identifier of the style, bounds and zoom range reuses identical map areas on this device. Different areas are separate packs.
+
+This is basemap storage, not a complete offline trail library. Server-backed trail details still require API access; no route snapshot, GPS recording or background tracking has been added. Removing a pack releases its offline-region reservation; provider caches and shared style resources can remain. If a route changes area, its previous pack is not automatically deleted. A device-wide download library and storage quota remain follow-up work.
+
+To validate, open a sample trail in Local demo mode, start its map download, pause and resume, and wait for Map area downloaded. Reopen the trail and confirm the stored status. Disable networking and inspect the downloaded area at supported zooms; then reconnect and remove the pack. A visible cached tile alone does not establish a completed offline download. Physical-device and iOS acceptance remain pending.

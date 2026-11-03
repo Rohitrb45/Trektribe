@@ -1,5 +1,11 @@
 # Validate the new features
 
+## Native basemap downloads (2026-11-03)
+
+In the Android development build, open a sample trail in Local demo mode and scroll below its map. Tap **Download map area**, pause, reopen the trail, and resume. Wait for **Map area downloaded**, then use **Refresh download status** to reread the SDK's stored state. Reopen the trail with Wi-Fi disabled and inspect the downloaded area; reconnect afterward. Tap **Remove map download** and refresh to confirm it is no longer listed. Provider caches may still display tiles after removal.
+
+The Android emulator passed partial-progress persistence across restart, resume/completion, Wi-Fi-disabled viewing and removal. [Completed download](images/android-map-download.png) and [Wi-Fi-disabled view](images/android-map-download-offline.png) are recorded. The latter is a sample-route check in a running debug app, not a cold-start, all-zoom-level or physical-device offline guarantee. Downloads cover basemap resources only; API-backed trail details and GPS tracks are not stored by this feature.
+
 ## Local demo
 
 Start `npm run web` with Node 22.13+.

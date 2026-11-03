@@ -1,4 +1,5 @@
 import RouteMap from "./RouteMap";
+import OfflineMap from "./OfflineMap";
 import { Avatar, Button, Chip, Label, green, muted, s } from "./ui";
 import { ExploreScreen } from "./screens/ExploreScreen";
 import { CommunityScreen } from "./screens/CommunityScreen";
@@ -481,10 +482,7 @@ function Application({ logout }: { logout?: () => Promise<void> }) {
                     <View style={{ height: 250 }}>
                       <RouteMap key={selected.id} points={selected.route} />
                     </View>
-                    <Text style={s.bodySmall}>
-                      Offline downloads and GPS recording are
-                      not connected in this build.
-                    </Text>
+                    <OfflineMap key={selected.id + JSON.stringify(selected.route)} points={selected.route} />
                     <View style={[s.row, { flexWrap: "wrap" }]}>
                       {selected.highlights.map((h) => (
                         <Text key={h} style={s.badge}>
