@@ -265,3 +265,9 @@ The app is a development milestone. Follow the README for a local run and inspec
 - All six offline-region/library tests passed, including previous-area discovery, foreign-pack exclusion, legacy metadata, unavailable status, pause-before-delete, deletion failure and already-missing packs. Mobile TypeScript and web/Android/iOS JavaScript exports passed.
 - No native dependency, schema or API contract changed. Full API/database suites were not rerun for this mobile-only change. Native library UI acceptance and physical-device/iOS acceptance remain pending; exports are not native binary or device tests.
 - Profile still depends on normal application startup. This is basemap management, not independent offline startup, route snapshots, quotas or GPS recording.
+## Map-area limits and size reporting (2026-11-04)
+
+- Added a 10-area admission limit for new TrekTribe map packs. Count-and-create operations are serialized within the app; existing packs can resume or be reused at the limit. Older installations above the limit are not pruned automatically.
+- Profile displays provider-reported resource sizes and their sum, labeling unknown sizes and distinguishing these figures from actual disk usage. This does not implement a byte quota or automatic eviction.
+- All nine offline-region/library tests passed, including concurrent final-slot creation, existing-pack reuse, replacement after removal, failed inventory/creation recovery and invalid size reports. Mobile TypeScript and web/Android/iOS JavaScript exports passed.
+- No native dependency, database or API contract changed; full API/database suites were not rerun. Native UI/device acceptance of the limits and size labels remains pending. Offline startup/route snapshots and GPS recording remain separate work.

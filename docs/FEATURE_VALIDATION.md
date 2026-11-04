@@ -1,5 +1,9 @@
 # Validate the new features
 
+## Map limits and reported sizes (2026-11-04)
+
+Profile → Map downloads shows the number of areas, per-area reported resource sizes and a reported-resource total. Unknown sizes must be labeled; shared resources may be counted more than once, and provider caches are outside this total. New downloads stop at 10 TrekTribe areas with instructions to remove one from Profile. Existing areas remain resumable; existing installations above the limit are not automatically pruned. Removing an area permits a replacement. Automated tests cover concurrent creation at the final slot and recovery after failed operations. Native UI acceptance for these controls remains pending.
+
 ## Download library (2026-11-04)
 
 In a configured native build, download a trail area, then open Profile → Map downloads and refresh. New packs should show the trail title; older packs may show an area identifier. A changed or removed trail must not hide its earlier downloaded region. Remove an area and refresh to verify it disappears; saved trails must remain unchanged. A failed status read should retain a removable entry, and a failed deletion should show an error. Packs are shared on the device across accounts. Automated tests cover these storage boundaries; native library UI acceptance remains pending.

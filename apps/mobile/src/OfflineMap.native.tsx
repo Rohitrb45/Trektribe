@@ -5,6 +5,7 @@ import type { OfflineMapProps } from './OfflineMap';
 import { offlineRegion, downloadProgress } from './offline-region';
 import { Button, s } from './ui';
 import { configuredMaps as maps } from './native-map-sdk';
+import { createMapDownload, MapDownloadLimitError } from './offline-library';
 
 export default function OfflineMap({ points, title }: OfflineMapProps) {
   const [name, setName] = useState('');
@@ -77,12 +78,12 @@ export default function OfflineMap({ points, title }: OfflineMapProps) {
         paused.current = false;
         if (alive.current) setProgress(p => ({ ...p, active: true }));
         if (pack) await pack.resume();
-        else await manager.createPack({ ...offlineRegion(points), name, metadata: { title: title?.slice(0, 120) ?? 'Map area' } }, (_pack, status) => {
+        else await createMapDownload(manager, name, () => manager.createPack({ ...offlineRegion(points), name, metadata: { title: title?.slice(0, 120) ?? 'Map area' } }, (_pack, status) => {
           if (alive.current && accepting.current) { setExists(true); setProgress(downloadProgress(status)); }
-        }, (_pack, event) => failed(event.message));
+        }, (_pack, event) => failed(event.message)));
         if (alive.current) setExists(true);
       }
-    } catch { accepting.current = true; if (alive.current) { setProgress(p => ({ ...p, active: false })); setError('Could not update the map download. Check connectivity and available storage, then try again.'); } }
+    } catch (error) { accepting.current = true; if (alive.current) { setProgress(p => ({ ...p, active: false })); setError(error instanceof MapDownloadLimitError ? error.message : 'Could not update the map download. Check connectivity and available storage, then try again.'); } }
     finally {
       lock.current = false;
       if (alive.current) setBusy(false);

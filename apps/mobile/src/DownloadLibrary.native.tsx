@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { configuredMaps } from './native-map-sdk';
-import { listMapDownloads, removeMapDownload } from './offline-library';
+import { listMapDownloads, removeMapDownload, MAX_MAP_DOWNLOADS, formatMapBytes } from './offline-library';
 import { Button, Label, s } from './ui';
 
 export default function DownloadLibrary() {
@@ -36,9 +36,11 @@ export default function DownloadLibrary() {
     {!configuredMaps ? <Text style={s.bodySmall}>A configured native map build is required.</Text> : <>
       {!!error && <Text accessibilityRole="alert" style={s.bodySmall}>{error}</Text>}
       <Button title={busy ? 'Updating downloads…' : 'Refresh downloads'} quiet disabled={busy} onPress={() => void refresh()} />
+      {loaded && <Text style={s.bodySmall}>{rows.length} of {MAX_MAP_DOWNLOADS} map areas · {formatMapBytes(rows.reduce((sum, row) => sum + (row.bytes ?? 0), 0))} reported resources{rows.some(row => row.bytes === null) ? ' (some sizes unavailable)' : ''}. Shared resources may be counted more than once; this is not total device storage usage.</Text>}
       {loaded && !rows.length && <Text style={s.bodySmall}>No downloaded map areas. Open a trail to download its map.</Text>}
       {rows.map(row => <View key={row.name} style={{ gap: 8 }}>
         <Text style={s.body}>{row.title}</Text>
+        <Text style={s.bodySmall}>{row.bytes === null ? 'Size unavailable' : `${formatMapBytes(row.bytes)} reported resources`}</Text>
         <Text style={s.bodySmall}>{row.unavailable ? 'Status unavailable' : row.progress?.complete ? 'Downloaded' : `${Math.floor(row.progress?.percentage ?? 0)}% downloaded`} · Area {row.name.slice(-8)}</Text>
         <Button title={`Remove ${row.title}`} quiet disabled={busy} onPress={() => void refresh(row.name)} />
       </View>)}
