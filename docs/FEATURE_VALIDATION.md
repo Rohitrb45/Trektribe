@@ -1,5 +1,17 @@
 # Validate the new features
 
+## Offline trail copies (2026-11-04)
+
+Rebuild/install the native development app after pulling this change: it adds Expo SQLite. Open a trail, choose **Save offline copy**, then use **Offline trails** at the top of the app. This viewer is accessible before sign-in and independently of API loading. Copies are shared by everyone using this device; no account, membership or authentication data is stored with them.
+
+1. Save a trail and inspect its title, description, metrics, saved time and route in Offline trails.
+2. Save it again: the same source, trail, version and geometry update the existing copy. Changed versions or geometry retain separate copies.
+3. Download its map area separately for terrain. Disconnect the API/network and reopen Offline trails; details must remain available. A development build still needs Metro to load JavaScript on cold startup, so use a bundled build for a full airplane-mode cold-start test.
+4. Remove the copy and refresh; the map download and server saved-trail preference must remain unchanged.
+5. Verify the 20-copy limit, updating an existing copy at capacity, and saving again after removal. Failed storage operations must show an error without claiming success.
+
+Automated tests use real SQLite for persistence/reopening, capacity, updates, removal, malformed rows and parameterized values. Emulator UI, native SQLite runtime, airplane-mode cold startup and physical-device acceptance for this new viewer remain pending. GPS recording and sync queues are not part of this change.
+
 ## Map limits and reported sizes (2026-11-04)
 
 Profile → Map downloads shows the number of areas, per-area reported resource sizes and a reported-resource total. Unknown sizes must be labeled; shared resources may be counted more than once, and provider caches are outside this total. New downloads stop at 10 TrekTribe areas with instructions to remove one from Profile. Existing areas remain resumable; existing installations above the limit are not automatically pruned. Removing an area permits a replacement. Automated tests cover concurrent creation at the final slot and recovery after failed operations. Native UI acceptance for these controls remains pending.

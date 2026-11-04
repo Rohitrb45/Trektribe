@@ -32,6 +32,8 @@ Acceptance: acknowledged messages survive reconnects; removed members lose acces
 
 ## 5. Offline maps and recorded tracks
 
+Progress (2026-11-04, trail copies): explicit device-local SQLite snapshots and an Offline trails viewer independent of API/sign-in loading are implemented. Snapshots contain only route details, retain changed geometry/versions, allow removal, and are limited to 20 copies. Native runtime and airplane-mode cold-start acceptance remain pending. SQLite recording sessions, points, sync cursors and queued operations remain next steps.
+
 Progress (2026-11-04, download limits): new native map downloads are limited to 10 TrekTribe areas per device, with serialized inventory checks and creation. Existing packs can still resume; removing an area permits a replacement. Profile reports provider resource sizes, preserving unknown sizes instead of treating them as zero. This is an area-count limit, not a hard byte quota; disk-space enforcement and independent offline trail/session storage remain pending.
 
 Progress (2026-11-04): Profile includes a native download library backed by the provider's stored packs. Previous route areas remain discoverable/removable without the current trail catalog. New packs have title metadata and older packs retain generic labels. Storage quotas, independent offline startup/route snapshots and SQLite recording remain pending.

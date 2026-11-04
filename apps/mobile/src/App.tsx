@@ -1,5 +1,6 @@
 import RouteMap from "./RouteMap";
 import OfflineMap from "./OfflineMap";
+import OfflineTrails, { SaveOfflineTrail } from "./OfflineTrails";
 import { Avatar, Button, Chip, Label, green, muted, s } from "./ui";
 import { ExploreScreen } from "./screens/ExploreScreen";
 import { CommunityScreen } from "./screens/CommunityScreen";
@@ -70,6 +71,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <Slot />
+      <OfflineTrails />
       {authenticatedMode ? (
         <AuthGate>
           {(logout) => (
@@ -483,6 +485,7 @@ function Application({ logout }: { logout?: () => Promise<void> }) {
                       <RouteMap key={selected.id} points={selected.route} />
                     </View>
                     <OfflineMap key={selected.id + JSON.stringify(selected.route)} points={selected.route} title={selected.title} />
+                    <SaveOfflineTrail key={selected.id + JSON.stringify(selected.route)} trek={selected} source={apiUrl} />
                     <View style={[s.row, { flexWrap: "wrap" }]}>
                       {selected.highlights.map((h) => (
                         <Text key={h} style={s.badge}>
