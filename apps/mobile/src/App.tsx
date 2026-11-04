@@ -482,7 +482,7 @@ function Application({ logout }: { logout?: () => Promise<void> }) {
                     <View style={{ height: 250 }}>
                       <RouteMap key={selected.id} points={selected.route} />
                     </View>
-                    <OfflineMap key={selected.id + JSON.stringify(selected.route)} points={selected.route} />
+                    <OfflineMap key={selected.id + JSON.stringify(selected.route)} points={selected.route} title={selected.title} />
                     <View style={[s.row, { flexWrap: "wrap" }]}>
                       {selected.highlights.map((h) => (
                         <Text key={h} style={s.badge}>

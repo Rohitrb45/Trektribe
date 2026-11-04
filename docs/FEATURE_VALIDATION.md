@@ -1,5 +1,9 @@
 # Validate the new features
 
+## Download library (2026-11-04)
+
+In a configured native build, download a trail area, then open Profile → Map downloads and refresh. New packs should show the trail title; older packs may show an area identifier. A changed or removed trail must not hide its earlier downloaded region. Remove an area and refresh to verify it disappears; saved trails must remain unchanged. A failed status read should retain a removable entry, and a failed deletion should show an error. Packs are shared on the device across accounts. Automated tests cover these storage boundaries; native library UI acceptance remains pending.
+
 ## Native basemap downloads (2026-11-03)
 
 In the Android development build, open a sample trail in Local demo mode and scroll below its map. Tap **Download map area**, pause, reopen the trail, and resume. Wait for **Map area downloaded**, then use **Refresh download status** to reread the SDK's stored state. Reopen the trail with Wi-Fi disabled and inspect the downloaded area; reconnect afterward. Tap **Remove map download** and refresh to confirm it is no longer listed. Provider caches may still display tiles after removal.

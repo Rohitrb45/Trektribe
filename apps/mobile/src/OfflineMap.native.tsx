@@ -1,18 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
-import Constants from 'expo-constants';
 import { digestStringAsync, CryptoDigestAlgorithm } from 'expo-crypto';
 import type { OfflineMapProps } from './OfflineMap';
 import { offlineRegion, downloadProgress } from './offline-region';
 import { Button, s } from './ui';
+import { configuredMaps as maps } from './native-map-sdk';
 
-let maps: typeof import('@rnmapbox/maps').default | undefined;
-const token = process.env.EXPO_PUBLIC_MAPBOX_TOKEN;
-if (token?.startsWith('pk.') && Constants.executionEnvironment !== 'storeClient') {
-  try { maps = require('@rnmapbox/maps').default; maps!.setAccessToken(token); } catch { maps = undefined; }
-}
-
-export default function OfflineMap({ points }: OfflineMapProps) {
+export default function OfflineMap({ points, title }: OfflineMapProps) {
   const [name, setName] = useState('');
   const [exists, setExists] = useState(false);
   const [progress, setProgress] = useState({ percentage: 0, complete: false, active: false });
@@ -83,7 +77,7 @@ export default function OfflineMap({ points }: OfflineMapProps) {
         paused.current = false;
         if (alive.current) setProgress(p => ({ ...p, active: true }));
         if (pack) await pack.resume();
-        else await manager.createPack({ ...offlineRegion(points), name }, (_pack, status) => {
+        else await manager.createPack({ ...offlineRegion(points), name, metadata: { title: title?.slice(0, 120) ?? 'Map area' } }, (_pack, status) => {
           if (alive.current && accepting.current) { setExists(true); setProgress(downloadProgress(status)); }
         }, (_pack, event) => failed(event.message));
         if (alive.current) setExists(true);

@@ -32,6 +32,8 @@ Acceptance: acknowledged messages survive reconnects; removed members lose acces
 
 ## 5. Offline maps and recorded tracks
 
+Progress (2026-11-04): Profile includes a native download library backed by the provider's stored packs. Previous route areas remain discoverable/removable without the current trail catalog. New packs have title metadata and older packs retain generic labels. Storage quotas, independent offline startup/route snapshots and SQLite recording remain pending.
+
 Progress (2026-11-03): native basemap-area downloads now have bounded regions, progress, pause/resume, status refresh and removal controls. Android emulator checks covered persisted partial progress across restart, resume to completion, reopening a sample map with Wi-Fi disabled, and removal. This does not cache server-backed trail details or implement GPS recording. A device-wide download library, storage quotas, SQLite route/session data and physical-device lifecycle acceptance remain pending.
 
 Use Expo SQLite for sessions, points, sync cursors, and queued operations; AsyncStorage in this demo is not a GPS database. Download map resources through the provider SDK. Add numbered, checksummed track chunks and private-by-default sharing. Test permission changes, background lifecycle, screen lock, limited storage, and battery drain on real devices.
