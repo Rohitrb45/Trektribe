@@ -20,7 +20,15 @@
     },
     "plugins": [
       "expo-router",
-      "@rnmapbox/maps"
+      "@rnmapbox/maps",
+      ["expo-location", {
+        "locationWhenInUsePermission": "Allow TrekTribe to record your walk while the app is open.",
+        "locationAlwaysPermission": false,
+        "locationAlwaysAndWhenInUsePermission": false,
+        "isIosBackgroundLocationEnabled": false,
+        "isAndroidBackgroundLocationEnabled": false,
+        "isAndroidForegroundServiceEnabled": false
+      }]
     ]
   }
 }

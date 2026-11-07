@@ -1,6 +1,7 @@
 import RouteMap from "./RouteMap";
 import OfflineMap from "./OfflineMap";
 import OfflineTrails, { SaveOfflineTrail } from "./OfflineTrails";
+import Recordings from "./Recordings";
 import { Avatar, Button, Chip, Label, green, muted, s } from "./ui";
 import { ExploreScreen } from "./screens/ExploreScreen";
 import { CommunityScreen } from "./screens/CommunityScreen";
@@ -72,6 +73,7 @@ export default function App() {
     <SafeAreaProvider>
       <Slot />
       <OfflineTrails />
+      <Recordings />
       {authenticatedMode ? (
         <AuthGate>
           {(logout) => (

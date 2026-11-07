@@ -1,5 +1,17 @@
 # Validate the new features
 
+## Foreground walk recording (2026-11-07)
+
+Rebuild/install the native app for Expo Location 19.0.8. Open **Record a walk** at the top of the app; it is available independently of API/sign-in. Name the walk and choose **Start recording**. Grant foreground location access and enable device location services. If a permission dialog causes the app to leave the foreground, start again after returning. No background-location permission or service is configured.
+
+- Move outdoors (or send spaced emulator GPS fixes) and verify the confirmed saved-point count increases. Fixes with missing accuracy, accuracy worse than 100 m, invalid coordinates or timestamps less than 10 seconds after the previous saved fix are ignored.
+- Pause, move, and confirm the count stays unchanged. Resume, then Finish; finished sessions cannot resume. View recorded route requires two saved points. Preview lines join saved positions even across pauses, and do not establish continuous tracking.
+- Close the recording screen, switch apps, or lock the screen: capture must stop. Return and resume explicitly. Kill/reopen the app and verify committed points remain and interrupted sessions reopen paused. A development build still requires Metro for JavaScript on startup.
+- Deny location permission, disable location services, and exercise failure/retry paths. A storage failure must stop capture without increasing the confirmed saved count. Previously committed points must remain readable.
+- Delete a recording through its confirmation dialog, refresh and verify it disappears. Recordings are shared on this device, accessible without sign-in; TrekTribe does not upload them. OS backups/device access remain governed by platform settings.
+
+The current capture limit is 500 saved updates per recording (one point per durable chunk), not a guaranteed recording duration. Capture auto-pauses at capacity; finish and start another recording. This favors immediate persistence over buffered capture. Larger durable batches, background capture, sync, physical-device accuracy/battery and extended lifecycle acceptance remain follow-up work. Automated controller tests cover permission denial, delayed callbacks, cancellation during startup, write failures, provider errors and the final recording slot.
+
 ## Recording storage foundation (2026-11-07)
 
 There is no new recording button yet: this increment implements the persistence layer that GPS capture will use. Run `node --import tsx --test tests/track-storage.test.ts` with Node 22.13+. Tests open a real SQLite file, save numbered chunks, close/reopen it, verify interrupted sessions become paused, resume and finish, then remove all associated data. They also cover concurrent duplicate retries, conflicting payloads, ordering, integrity failures, an injected write failure with rollback, and capacity recovery after deletion.
