@@ -241,3 +241,7 @@ Run `npm test` for request serialization and error handling. Run `npm run test:d
 Run `npm run typecheck` to verify both ends of Socket.IO send, sync, presence, away and change notifications. `npm test` checks strict input validation. Existing PostgreSQL/Redis integration tests exercise retries, conflicting IDs, forged identity rejection, reconnect backfill, revoked membership and cross-server notifications. The contracts preserve existing wire payloads and draft behavior; real-device lifecycle checks remain pending.
 
 Native map validation (2026-11-01): Android x86_64 live tiles, sample-route framing, pan/zoom, attribution and provider-error fallback/retry passed with hardware graphics. Start a visible Android emulator, then run `powershell -ExecutionPolicy Bypass -File scripts/android.ps1`. Open a trail and repeat these checks. For pending network-interruption acceptance, disconnect networking and request uncached resources; existing cached tiles do not prove offline-download support. Verify any fallback label and **Retry map** remain visible, then reconnect and retry. Physical-device, invalid-token and extended lifecycle acceptance remain pending. See [NATIVE_MAPS.md](NATIVE_MAPS.md) for evidence.
+
+## Bundled Android offline validation
+
+See [OFFLINE_ANDROID_BUILD.md](OFFLINE_ANDROID_BUILD.md) for a build with embedded JavaScript, APK verification, installation and airplane-mode cold-start checks. Physical-device testing remains deferred; packaging checks do not establish native runtime acceptance.

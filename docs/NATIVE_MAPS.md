@@ -75,3 +75,7 @@ The native app now includes Expo Location for **Record a walk**. After installin
 
 
 Recording capacity update (2026-11-07): foreground capture now persists partial chunks after every fix and seals them at 200 points. New sessions support up to 100,000 points; existing chunks retain their slots. This supersedes the earlier 500-update capture limit. No additional native rebuild is needed if the Expo Location build is already installed. See FEATURE_VALIDATION.md for remaining acceptance checks.
+
+## Bundled Android offline validation
+
+See [OFFLINE_ANDROID_BUILD.md](OFFLINE_ANDROID_BUILD.md) for a build with embedded JavaScript, APK verification, installation and airplane-mode cold-start checks. Physical-device testing remains deferred; packaging checks do not establish native runtime acceptance.

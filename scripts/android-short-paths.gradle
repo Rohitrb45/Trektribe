@@ -1,0 +1,19 @@
+// Keep dependency CMake intermediates under the launcher's short drive alias.
+// Node/Expo may resolve dependency sources back to the long physical path.
+gradle.beforeProject { project ->
+    project.plugins.withId('com.facebook.react') {
+        // RN makes the entry argument relative on Windows, but Expo's monorepo
+        // Metro server resolves it against the workspace root. Keep it absolute.
+        project.extensions.getByName('react').extraPackagerArgs.addAll([
+            '--entry-file', new File(project.rootProject.projectDir.parentFile, 'index.ts').absolutePath,
+            '--max-workers', '2'
+        ])
+    }
+    project.plugins.withId('com.android.library') {
+        def stagingRoot = project.findProperty('trektribeNativeStagingRoot')
+        if (stagingRoot) {
+            project.android.externalNativeBuild.cmake.buildStagingDirectory =
+                new File(stagingRoot.toString(), project.path.replace(':', '_'))
+        }
+    }
+}

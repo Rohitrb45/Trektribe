@@ -1,5 +1,7 @@
-param([switch]$BuildOnly, [switch]$ResetNativeCache, [ValidatePattern('^[D-Zd-z]$')][string]$Drive = 'T', [ValidateSet('arm64-v8a','x86_64')][string]$Architecture)
+param([switch]$BuildOnly, [switch]$OfflinePreview, [switch]$ResetNativeCache, [ValidatePattern('^[D-Zd-z]$')][string]$Drive = 'T', [ValidateSet('arm64-v8a','x86_64')][string]$Architecture)
 $ErrorActionPreference = 'Stop'
+$previousNodeEnv = $env:NODE_ENV
+if ($OfflinePreview) { $BuildOnly = $true }
 $repo = Split-Path $PSScriptRoot -Parent
 # Resolve an invocation through an existing subst alias before comparing paths.
 $sourceDrive = [IO.Path]::GetPathRoot($repo).TrimEnd('\')
@@ -39,7 +41,8 @@ $localJdk = Get-ChildItem "$repo/.tmp/android-tools/jdk17" -Directory -ErrorActi
 if ($localJdk) { $env:JAVA_HOME = $localJdk.FullName }
 if (-not $env:JAVA_HOME) { throw 'Set JAVA_HOME to JDK 17. Android Studio may bundle a newer incompatible JDK.' }
 $env:ANDROID_HOME = $sdk
-if (-not $env:NODE_ENV) { $env:NODE_ENV = 'development' }
+if ($OfflinePreview) { $env:NODE_ENV = 'production' }
+elseif (-not $env:NODE_ENV) { $env:NODE_ENV = 'development' }
 $env:Path = "$env:JAVA_HOME/bin;$sdk/platform-tools;$env:Path"
 $localNode = "$repo/.tmp/toolchain/node_modules/node/bin"
 if (Test-Path "$localNode/node.exe") { $env:Path = "$localNode;$env:Path" }
@@ -52,14 +55,28 @@ try {
     }
     Push-Location android
     try {
-      $gradleArgs = @(':app:assembleDebug', '--max-workers=2', '--console=plain')
+      $buildTask = if ($OfflinePreview) { ':app:assembleRelease' } else { ':app:assembleDebug' }
+      $gradleArgs = @($buildTask, '--max-workers=2', '--console=plain')
+      if ($OfflinePreview) {
+        # Kotlin incremental caches cannot relativize mixed physical/subst roots.
+        $gradleArgs += @('--init-script', "$repo/scripts/android-short-paths.gradle", "-PtrektribeNativeStagingRoot=$repo.tmp/cxx", '-Pkotlin.incremental=false')
+      }
       if ($Architecture) { $gradleArgs += "-PreactNativeArchitectures=$Architecture" }
       & ./gradlew.bat @gradleArgs
       if ($LASTEXITCODE -ne 0) { throw 'Android build failed.' }
+      if ($OfflinePreview) {
+        $apk = Join-Path $physicalRepo 'apps/mobile/android/app/build/outputs/apk/release/app-release.apk'
+        & "$PSScriptRoot/verify-offline-apk.ps1" -Apk $apk -Architecture $Architecture
+        Write-Host "Offline validation APK: $apk"
+        Write-Host 'Install manually on the matching device. This is a local validation artifact, not a production release.'
+      }
     }
     finally { Pop-Location }
   } else {
     & node ../../node_modules/expo/bin/cli run:android
     if ($LASTEXITCODE -ne 0) { throw 'Android launch failed.' }
   }
-} finally { Pop-Location }
+} finally {
+  Pop-Location
+  if ($OfflinePreview) { $env:NODE_ENV = $previousNodeEnv }
+}
