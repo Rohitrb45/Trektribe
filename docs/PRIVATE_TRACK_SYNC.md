@@ -31,3 +31,5 @@ Migration `012_private_tracks.sql` runs through `npm run db:migrate` with the co
 ## Next client stage
 
 Only finished recordings should be offered for upload initially. Include the persisted partial tail as a final upload chunk, then freeze the declared totals. Prompt explicitly before uploading device-local GPS data into the signed-in account. Persist an outbox keyed by API/issuer/subject and a fresh upload ID; never move pending uploads to another account on sign-in changes. Reconcile progress with the server after timeouts, retry identical chunks, complete only after all acknowledgments, and expose explicit remote deletion distinct from local deletion. None of that client lifecycle is claimed by this server increment.
+
+CI evidence: implementation commit 94f9438 passed both application and PostgreSQL/PostGIS database jobs in [run 42392695404](https://github.com/Rohitrb45/Trektribe/actions/runs/42392695404). The client outbox/upload UI and live account/device acceptance remain open.
