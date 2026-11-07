@@ -71,7 +71,18 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await Promise.all([tracks.create(a,metadata),tracks.create(a,metadata)]);
       assert.equal((await tracks.list(a)).items.length,1);
       assert.equal((await tracks.list(b)).items.length,0);
-      for (const attempt of [() => tracks.get(b,id), () => tracks.putChunk(b,id,0,chunk(1)), () => tracks.complete(b,id), () => tracks.remove(b,id), () => tracks.readChunk(b,id,0)]) await assert.rejects(attempt(),status(404));
+      for (const attempt of [() => tracks.get(b,id), () => tracks.putChunk(b,id,0,chunk(1)), () => tracks.complete(b,id), () => tracks.readChunk(b,id,0)]) await assert.rejects(attempt(),status(404));
+      const cancelledId=randomUUID();
+      await tracks.remove(a,cancelledId);
+      await assert.rejects(tracks.create(a,{...metadata,id:cancelledId}),status(409));
+      await tracks.remove(b,cancelledId); // Unknown IDs also return an owner-scoped deletion acknowledgment.
+      const racedId=randomUUID();
+      await Promise.allSettled([tracks.create(a,{...metadata,id:racedId}),tracks.remove(a,racedId)]);
+      await assert.rejects(tracks.get(a,racedId),status(404));
+      await assert.rejects(tracks.create(a,{...metadata,id:racedId}),status(409));
+      const isolatedId=randomUUID();
+      await tracks.create(a,{...metadata,id:isolatedId});await tracks.remove(b,isolatedId);
+      assert.equal((await tracks.get(a,isolatedId)).id,isolatedId);await tracks.remove(a,isolatedId);
       await assert.rejects(tracks.complete(a,id),status(409));
       await assert.rejects(tracks.putChunk(a,id,1,chunk(2)),status(409));
       await Promise.all([tracks.putChunk(a,id,0,chunk(1)),tracks.putChunk(a,id,0,chunk(1))]);

@@ -318,3 +318,13 @@ Local checks: all 75 application tests passed, including new strict-schema, chec
 Web, Android and iOS JavaScript exports passed after the shared serialization change.
 
 GitHub Actions subsequently passed both check and database jobs for implementation commit 94f9438: https://github.com/Rohitrb45/Trektribe/actions/runs/42392695404 . The PostgreSQL/PostGIS integration suite therefore verified migration 012, owner isolation, ordered/concurrent retry handling, final-slot quota races, deletion/tombstones and the HTTP adapter on the CI database. This supersedes the pending-CI status above; no live OIDC or native-device acceptance is implied.
+
+## 2026-11-07 — Explicit native private uploads and durable outbox
+
+Added a separate SQLite outbox with atomic frozen snapshots of finished recordings (including partial tails), per-account/API scope, server-progress reconciliation, persisted chunk cursors and deletion intent. Upload runs freeze the credential and check account/session/screen state before every request. Backgrounding/closure invalidates the run until a manual retry; a request already sent may complete against the original account. Upload controls resolve the server-authenticated profile, confirm the named account and recheck scope before preparing data. No automatic upload is connected. Uploaded jobs discard redundant payloads but retain remote deletion handles. Local recording removal is explicitly distinct from outbox/server removal.
+
+Server removal now acquires the same owner lock as creation and writes an owner-scoped tombstone even for an absent upload ID. This fixes the delete-before-delayed-create resurrection race. Integration coverage includes that race and cross-owner deletion isolation. It intentionally changes unknown-ID removal from 404 to an idempotent deletion acknowledgment; reads/writes remain owner-scoped 404s.
+
+Validation: all 81 application tests passed before the final quota test was added; the complete seven-test outbox suite then passed, covering file reopening, credential guards, account changes, lost create/chunk/complete/delete responses, atomic rollback, corruption, finished-only preparation and global device quota recovery. Mobile/API TypeScript, API compilation and generated-contract freshness passed. PostgreSQL race tests are queued for CI because no local database is configured. No native dependency or build configuration changed. Live OIDC/native UI, background/timeout handling on real devices and remote restore UI remain unverified; physical-device testing remains deferred.
+
+Web, Android and iOS JavaScript exports passed with the native upload controls and outbox adapter.

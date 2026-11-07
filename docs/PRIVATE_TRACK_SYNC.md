@@ -1,10 +1,10 @@
-# Private recording upload protocol — server stage
+# Private recording upload protocol and mobile queue
 
-Implemented 2026-11-07. The app still records locally: no upload button, automatic upload or sync worker is connected. These endpoints establish the server protocol and generated client adapter for the next stage. Live OIDC and native acceptance remain separate tasks.
+Implemented 2026-11-07. The native recording screen now offers explicit private upload, retry and removal controls for finished recordings. Capture remains local by default. Live OIDC and native end-to-end acceptance remain separate tasks; no automatic/background sync worker is connected.
 
 ## Server contract
 
-All routes use the existing authenticated actor and PostgreSQL. JSON-demo storage responds with 409. The API never accepts an owner ID from a request body. Owner and upload ID form a composite key; identical local IDs on two accounts are separate recordings. Responses for another owner's recording are 404.
+All routes use the existing authenticated actor and PostgreSQL. JSON-demo storage responds with 409. The API never accepts an owner ID from a request body. Owner and upload ID form a composite key; identical local IDs on two accounts are separate recordings. Reads/writes for another owner's recording are 404. Removal always acknowledges deletion in the authenticated owner's namespace, including an absent ID, without affecting another owner.
 
 | Route under `/v1` | Behavior |
 | --- | --- |
@@ -20,7 +20,7 @@ Limits: 20 live uploads per account, 500 chunks per upload, 200 points per chunk
 
 Chunk data and progress commit in one transaction under the upload's row lock. Concurrent identical retries acknowledge the saved result without increasing counters. Conflicting payloads, out-of-order chunks, excess points or premature completion fail. Account creation locks enforce the live-upload quota across server instances. Existing chunks remain immutable after completion; exact retries are still acknowledged.
 
-Removal is idempotent for the owner. It deletes GPS payloads and clears the title/last timestamp. An owner/upload-ID tombstone retains declaration/counter/completion metadata and deletion time so delayed creation or chunk retries cannot resurrect deleted data. This is not the app-wide permanent-erasure feature. Tombstone retention and abuse/rate limits require release policy.
+Removal is idempotent for the owner and creates a tombstone even if a delayed create request has not arrived yet. It takes the same owner lock as creation. It deletes GPS payloads and clears the title/last timestamp. An owner/upload-ID tombstone retains declaration/counter/completion metadata and deletion time so delayed creation or chunk retries cannot resurrect deleted data. This is not the app-wide permanent-erasure feature. Tombstone retention and abuse/rate limits require release policy.
 
 ## Migration and verification
 
@@ -28,8 +28,16 @@ Migration `012_private_tracks.sql` runs through `npm run db:migrate` with the co
 
 `tests/private-tracks.test.ts` checks request/response schema drift, canonical checksums, strict input validation and generated adapter retry payloads. `tests/integration/postgres.test.ts` adds actual PostgreSQL checks for owner isolation, concurrent retries, final-slot quota races, ordering, completion, legacy migration repeatability, HTTP routing and deletion/tombstones. Its harness creates and drops an isolated database on `TEST_DATABASE_URL`; it does not clear the supplied database. CI's database job supplies PostgreSQL/PostGIS.
 
-## Next client stage
+## Mobile queue
 
-Only finished recordings should be offered for upload initially. Include the persisted partial tail as a final upload chunk, then freeze the declared totals. Prompt explicitly before uploading device-local GPS data into the signed-in account. Persist an outbox keyed by API/issuer/subject and a fresh upload ID; never move pending uploads to another account on sign-in changes. Reconcile progress with the server after timeouts, retry identical chunks, complete only after all acknowledgments, and expose explicit remote deletion distinct from local deletion. None of that client lifecycle is claimed by this server increment.
+In the native recording screen, finish a nonempty recording and choose **Upload privately**. The app resolves the signed-in account through authenticated `/me` and asks for confirmation naming that account. It reconnects and verifies the same account after confirmation, then freezes all sealed chunks and the persisted partial tail into a separate SQLite outbox. There are at most 20 upload entries per device across accounts. Tokens are never persisted in the outbox.
 
-CI evidence: implementation commit 94f9438 passed both application and PostgreSQL/PostGIS database jobs in [run 42392695404](https://github.com/Rohitrb45/Trektribe/actions/runs/42392695404). The client outbox/upload UI and live account/device acceptance remain open.
+The queue key combines the configured API URL, OIDC issuer and the server profile ID (derived server-side from verified issuer/subject). Each network run freezes the current token and rejects replacement/expired credentials before each request. Closing the screen or backgrounding invalidates the run even if the app returns before an in-flight response arrives. Requests already sent can finish against the original account; they cannot be redirected to a replacement account. Requests time out after 15 seconds, including response-body reading.
+
+Preparation is atomic and performs free-space checks. The finished local recording can subsequently be deleted without corrupting a queued upload. **Delete local recording** removes only that original; its frozen outbox copy remains until upload completion or acknowledged server removal. Upload completion discards redundant queued GPS payloads but retains a small remote-deletion handle. **Remove server copy and upload entry** persists deletion intent, then requests idempotent server removal. Failed deletion remains visibly pending and must be retried. A fresh authenticated account lookup is required to manage its queue; offline deletion is not silently queued before identity verification.
+
+Use **Load this account's uploads** and **Retry upload** after a restart or interruption. The server's acknowledged sequence/count reconcile lost responses; exact retries cannot duplicate points. Each job is independently scoped and only the current account's entries are shown. No job is sent just because the app restarted, regained connectivity or signed into an account. Re-uploading a removed recording needs a new explicit confirmation and new upload ID.
+
+## Remaining acceptance
+
+Unit tests exercise real SQLite reopen/rollback, lost create/chunk/complete/delete acknowledgments, frozen-token guards, account-scope isolation, integrity and deletion recovery. PostgreSQL integration tests cover delete-before-create and create/delete races. Live-provider/two-account native UI testing remains pending. The current UI manages this device's uploads; listing/restoring recordings uploaded from another device is not implemented. Full account erasure, tombstone retention/rate policy, background sync and physical-device testing remain separate work.

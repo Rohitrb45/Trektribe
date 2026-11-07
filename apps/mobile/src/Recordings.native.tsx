@@ -7,6 +7,7 @@ import { ForegroundRecorder, type RecorderState } from './foreground-recorder';
 import type { TrackSession, TrackStorage } from './track-storage';
 import { Button, s } from './ui';
 import RouteMap from './RouteMap';
+import TrackUploads from './TrackUploads';
 
 export default function Recordings() {
   const [visible, setVisible] = useState(false);
@@ -85,7 +86,7 @@ export default function Recordings() {
       <SafeAreaView style={{ flex: 1 }}><ScrollView contentContainerStyle={{ padding: 20, gap: 12 }}>
         <Button title="Close and pause" quiet onPress={close} />
         <Text style={s.title}>Recordings</Text>
-        <Text style={s.bodySmall}>Records only while this screen stays open and the app is in the foreground. Closing it, switching apps or locking the screen pauses capture. Resume manually. Recordings stay on this device, accessible without signing in; TrekTribe does not upload recordings.</Text>
+        <Text style={s.bodySmall}>Records only while this screen stays open and the app is in the foreground. Closing it, switching apps or locking the screen pauses capture. Resume manually. Recordings stay on this device, accessible without signing in, unless you explicitly upload a private copy below.</Text>
         <Text style={s.bodySmall}>Up to 100,000 saved points per new recording. Older recordings may have fewer available slots. Poor fixes are ignored; updates are at least 10 seconds apart. Only points confirmed as saved survive an interruption.</Text>
         {!!error && <Text accessibilityRole="alert">{error}</Text>}
         {!!state.message && <Text accessibilityLiveRegion="polite">{state.message}</Text>}
@@ -101,10 +102,11 @@ export default function Recordings() {
             {row.state === 'paused' && <Button title="Resume" disabled={busy || state.busy || state.capturing || row.nextChunk >= 500} onPress={() => { void act(async () => { if (opened.current && AppState.currentState === 'active') await recorder.current!.begin({ resume: row }); }); }} />}
             {row.state !== 'finished' && <Button title="Finish" disabled={busy || (state.capturing && state.session?.id !== row.id)} onPress={() => { void act(async () => { if (state.session?.id === row.id) await recorder.current!.stop('finished'); else await repository.current!.transition(row.id, 'finished'); }); }} />}
             <Button title="View recorded route" quiet disabled={busy || state.capturing || row.pointCount < 2} onPress={() => { void act(() => inspect(row)); }} />
-            <Button title="Delete recording" quiet disabled={busy || state.capturing || state.busy} onPress={() => Alert.alert('Delete recording?', 'This removes the saved points from this device.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { void act(async () => { await repository.current!.remove(row.id); recorder.current!.forget(row.id); setPreview(null); }); } }])} />
+            <Button title="Delete local recording" quiet disabled={busy || state.capturing || state.busy} onPress={() => Alert.alert('Delete recording?', 'This removes the original local recording. A queued upload keeps its own copy; use Private uploads to remove queued/server copies.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { void act(async () => { await repository.current!.remove(row.id); recorder.current!.forget(row.id); setPreview(null); }); } }])} />
           </View>;
         })}
         {preview && <><Text style={s.sectionTitle}>{preview.title}</Text><View style={{ height: 300 }}><RouteMap key={preview.title + preview.points.length} points={preview.points} /></View><Text style={s.bodySmall}>Lines connect saved positions, including across pauses; they are not a continuous recorded path. Terrain requires network access or a downloaded map area.</Text></>}
+        <TrackUploads rows={rows} source={repository.current} active={visible && !busy && !state.capturing && !state.busy} />
       </ScrollView></SafeAreaView>
     </Modal>
   </>;

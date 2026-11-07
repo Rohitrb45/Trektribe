@@ -94,8 +94,10 @@ export class PrivateTracks {
   remove(owner: string, id: string) {
     return this.transaction(async db => {
       // Keep a minimal tombstone so delayed create/chunk retries cannot resurrect deleted GPS data.
-      const row = (await db.query('SELECT id FROM private_tracks WHERE owner_id=$1 AND id=$2 FOR UPDATE', [owner,id])).rows[0];
-      if (!row) throw missing();
+      // Match create's lock order, including when its network request has not arrived yet.
+      await db.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [owner]);
+      await db.query("INSERT INTO private_tracks(owner_id,id,title,chunk_count,expected_points,deleted_at) VALUES($1,$2,'',1,1,now()) ON CONFLICT(owner_id,id) DO NOTHING", [owner,id]);
+      await db.query('SELECT id FROM private_tracks WHERE owner_id=$1 AND id=$2 FOR UPDATE', [owner,id]);
       await db.query('DELETE FROM private_track_chunks WHERE owner_id=$1 AND track_id=$2', [owner,id]);
       await db.query("UPDATE private_tracks SET title='',last_timestamp=NULL,deleted_at=COALESCE(deleted_at,now()) WHERE owner_id=$1 AND id=$2", [owner,id]);
       return { deleted: true as const };

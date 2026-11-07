@@ -1,5 +1,13 @@
 # Validate the new features
 
+## Private upload controls (2026-11-07)
+
+Requires configured OIDC, PostgreSQL migration 012 and a finished, nonempty native recording. Demo mode does not upload. In **Record a walk → Private uploads**, choose a recording, confirm the named account, and verify the upload entry reaches Uploaded privately. The source recording must remain local. Load account uploads again after reopening.
+
+Interrupt networking after a chunk is committed, restart, and Retry: previously acknowledged points must not duplicate. Switch accounts or close/background the screen during upload: no subsequent request may use the new account or resume automatically. Returning to the original account and manually retrying must finish the same job. The queue includes partial tails and survives deletion of the original local recording. Confirmed server removal must preserve the original local recording; a lost removal acknowledgment must leave a retryable deletion entry. Creation arriving after deletion must remain tombstoned.
+
+Only completed uploads drop their redundant queued GPS data; uploaded handles remain for remote deletion. Local deletion does not cancel an upload or remove its server copy. All entries are account/API scoped, with 20 total entries per device. Live native/provider acceptance is pending; automated outbox tests are not evidence of device network/lifecycle behavior.
+
 ## Low-storage safeguards (2026-11-07)
 
 Native recording create/resume and every new point/chunk write check for at least 64 MiB of free internal storage. Saving a trail copy uses the same check. Starting or resuming a map-area download requires 256 MiB. Unreadable capacity blocks those operations with an error rather than assuming free space. Existing data remains readable/removable; recording pause/finish and exact committed-point retry acknowledgments are not blocked by the reserve check.
