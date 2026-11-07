@@ -45,3 +45,17 @@ powershell -ExecutionPolicy Bypass -File scripts/verify-offline-apk.ps1 -Apk app
 ```
 
 The Windows helper configures dependency CMake intermediates through Android's [buildStagingDirectory](https://android.googlesource.com/platform/tools/base/+/HEAD/build-system/gradle-api/src/main/java/com/android/build/api/dsl/Cmake.kt) option. This avoids long physical node_modules paths without editing dependencies. Generated native caches remain under the ignored .tmp/cxx directory. Offline builds disable Kotlin incremental compilation because mixed physical/subst roots can break its cache; normal Gradle up-to-date checks still apply.
+
+## Repeatable emulator smoke check
+
+With the bundled validation APK installed and the emulator fully booted, run from the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/android-offline-smoke.ps1 -Serial emulator-5554
+```
+
+Use the emulator serial shown by `adb devices`. This command accepts emulator serials only. It does not install, uninstall, clear app storage, start a GPS recording or upload anything. It force-stops the app twice, so finish any active test recording beforehand. It enables airplane mode, disables Wi-Fi/mobile data, requires Android to report no active default network, and checks that both cold starts reach the app and open Offline trails and Recordings. It restores and verifies the original radio settings in a finally block, including on failure.
+
+Screenshots, UI XML, connectivity state and the successful result are written under `.tmp/offline-smoke-<timestamp>` (ignored by Git). These files can contain locally displayed trail/recording details; review them before sharing. A pass proves navigation, not saved-content integrity, GPS capture, downloaded-map coverage or account sync. Continue with the manual content checks above. Unknown radio/connectivity formats fail closed; inspect the evidence and restore settings manually if the emulator disconnects during cleanup.
+
+On the 8 GB Windows test PC, Small_Phone/API 37 booted using `-memory 1024 -cores 2 -no-snapshot -no-window -gpu host`. The normal larger emulator configuration had previously stalled under memory pressure. A visible emulator window is optional; this script uses ADB UI capture.
