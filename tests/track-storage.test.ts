@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SnapshotDatabase } from '../apps/mobile/src/trail-snapshots';
 import { TrackStorage, canonicalTrackPoints, TRACK_LIMITS } from '../apps/mobile/src/track-storage';
+import { requireStorageSpace, LOCAL_STORAGE_RESERVE } from '../apps/mobile/src/storage-space';
 function adapter(sqlite: DatabaseSync): SnapshotDatabase {
   const db: SnapshotDatabase = {
     execAsync: async sql => { sqlite.exec(sql); },
@@ -22,6 +23,26 @@ function adapter(sqlite: DatabaseSync): SnapshotDatabase {
 }
 const hash = async (value: string) => createHash('sha256').update(value).digest('hex');
 const point = (timestamp: number) => ({ longitude: 77, latitude: 30, timestamp, accuracy: 5, altitude: null });
+test('low-space guard stops new writes but permits retry acknowledgments, reading, finishing and deletion', async () => {
+  const sql = new DatabaseSync(':memory:');
+  let space = LOCAL_STORAGE_RESERVE;
+  const store = new TrackStorage(adapter(sql), hash, () => requireStorageSpace(space));
+  try {
+    await store.initialize(); await store.create('walk', 'Walk', 1);
+    await store.appendFix('walk', 0, point(2));
+    space = 0;
+    await assert.rejects(store.appendFix('walk', 1, point(3)), /Free at least/);
+    assert.equal((await store.appendFix('walk', 0, point(2))).pointCount, 1);
+    assert.deepEqual(await store.readPending('walk'), [point(2)]);
+    await store.transition('walk', 'paused');
+    await assert.rejects(store.transition('walk', 'recording'), /Free at least/);
+    await assert.rejects(store.create('another', 'Walk', 1), /Free at least/);
+    space = LOCAL_STORAGE_RESERVE;
+    await store.transition('walk', 'recording'); await store.appendFix('walk', 1, point(3));
+    space = 0; await store.transition('walk', 'finished'); await store.remove('walk');
+    assert.deepEqual(await store.list(), []);
+  } finally { sql.close(); }
+});
 test('partial capture chunks survive reopening and finish without losing saved fixes', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'trek-pending-'));
   let sql = new DatabaseSync(join(dir, 'tracks.db'));

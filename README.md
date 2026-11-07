@@ -154,3 +154,8 @@ Badges and initial activity totals are samples. Offline-capable browser assets a
 ## API contract development
 
 See [the generated client guide](docs/API_CLIENT.md) for contract scope, regeneration, and checks. Run `npm run api:generate` after editing the contract; CI verifies it with `npm run api:check`.
+
+
+## Current development checklist
+
+See [remaining work](docs/REMAINING_WORK.md) for open implementation and acceptance items, and [Auth0 setup](docs/AUTH0_SETUP.md) for configuring live development sign-in. Physical-device testing remains deferred; production startup is still disabled.

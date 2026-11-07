@@ -6,6 +6,8 @@ import { offlineRegion, downloadProgress } from './offline-region';
 import { Button, s } from './ui';
 import { configuredMaps as maps } from './native-map-sdk';
 import { createMapDownload, MapDownloadLimitError } from './offline-library';
+import { checkNativeStorage } from './native-storage-space';
+import { MAP_STORAGE_RESERVE, StorageSpaceError } from './storage-space';
 
 export default function OfflineMap({ points, title }: OfflineMapProps) {
   const [name, setName] = useState('');
@@ -74,6 +76,7 @@ export default function OfflineMap({ points, title }: OfflineMapProps) {
         if (pack) await pack.pause();
         if (alive.current) setProgress(p => ({ ...p, active: false }));
       } else {
+        checkNativeStorage(MAP_STORAGE_RESERVE);
         accepting.current = true;
         paused.current = false;
         if (alive.current) setProgress(p => ({ ...p, active: true }));
@@ -83,7 +86,7 @@ export default function OfflineMap({ points, title }: OfflineMapProps) {
         }, (_pack, event) => failed(event.message)));
         if (alive.current) setExists(true);
       }
-    } catch (error) { accepting.current = true; if (alive.current) { setProgress(p => ({ ...p, active: false })); setError(error instanceof MapDownloadLimitError ? error.message : 'Could not update the map download. Check connectivity and available storage, then try again.'); } }
+    } catch (error) { accepting.current = true; if (alive.current) { setProgress(p => ({ ...p, active: false })); setError(error instanceof MapDownloadLimitError || error instanceof StorageSpaceError ? error.message : 'Could not update the map download. Check connectivity and available storage, then try again.'); } }
     finally {
       lock.current = false;
       if (alive.current) setBusy(false);
@@ -92,7 +95,7 @@ export default function OfflineMap({ points, title }: OfflineMapProps) {
   }
   if (!maps) return <Text style={s.bodySmall}>Map downloads require a configured native build.</Text>;
   return <View style={{ gap: 8 }}>
-    <Text style={s.bodySmall}>Download this map area for this device (zoom levels 10–14). Uses network data and device storage. Trail details from the server are not included; GPS recording is not connected.</Text>
+    <Text style={s.bodySmall}>Download this map area for this device (zoom levels 10–14). Uses network data and device storage. Save an offline trail copy separately for route details. Starting or resuming requires 256 MiB of free device storage.</Text>
     {!!error && <Text accessibilityRole="alert" style={s.bodySmall}>{error}</Text>}
     {exists && <Text style={s.bodySmall}>{progress.complete ? 'Map area downloaded' : `${Math.floor(progress.percentage)}% downloaded`}</Text>}
     {!progress.complete && <Button title={progress.active ? 'Downloading map area…' : exists ? 'Resume map download' : 'Download map area'} disabled={busy || !name || progress.active} onPress={() => void act('download')} />}

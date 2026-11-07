@@ -1,4 +1,5 @@
 import { canonicalTrackPoints, TRACK_LIMITS, type TrackPoint, type TrackSession, type TrackStorage } from './track-storage';
+import { StorageSpaceError } from './storage-space';
 
 export interface LocationCapture {
   permission(): Promise<boolean>;
@@ -78,10 +79,10 @@ export class ForegroundRecorder {
           this.detach(); await this.pauseStored();
           this.update({ message: 'Recording capacity reached. Finish this recording and start another to continue.' });
         }
-      } catch {
+      } catch (error) {
         this.writeFailed = true;
         this.detach(); await this.pauseStored();
-        this.update({ message: 'The latest location could not be saved. Capture stopped; earlier committed points remain stored. Check device storage before resuming.' });
+        this.update({ message: error instanceof StorageSpaceError ? `Capture stopped. ${error.message}` : 'The latest location could not be saved. Capture stopped; earlier committed points remain stored. Check device storage before resuming.' });
       }
     }).finally(() => { this.queued--; });
   }

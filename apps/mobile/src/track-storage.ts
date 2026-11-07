@@ -29,7 +29,7 @@ async function session(db: SnapshotConnection, id: string): Promise<TrackSession
 /** Local-only storage. No publishing or upload operation is exposed. One instance per database. */
 export class TrackStorage {
   private queue: Promise<unknown> = Promise.resolve();
-  constructor(private db: SnapshotDatabase, private hash: Hash) {}
+  constructor(private db: SnapshotDatabase, private hash: Hash, private checkSpace: () => void = () => {}) {}
   private write<T>(task: (tx: SnapshotConnection) => Promise<T>): Promise<T> {
     const result = this.queue.then(async () => {
       let value!: T;
@@ -56,6 +56,7 @@ export class TrackStorage {
   create(id: string, title: string, createdAt = Date.now()) {
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id) || !title.trim() || title.length > 200 || !Number.isSafeInteger(createdAt) || createdAt < 0) return Promise.reject(new Error('Invalid recording session.'));
     return this.write(async tx => {
+      this.checkSpace();
       const rows = await tx.getAllAsync<{ id: string }>('SELECT id FROM track_sessions_v1');
       if (rows.length >= TRACK_LIMITS.sessions) throw new Error('Remove a recording before creating another (20 maximum).');
       const active = await tx.getAllAsync<{ id: string }>("SELECT id FROM track_sessions_v1 WHERE state = 'recording'");
@@ -78,6 +79,7 @@ export class TrackStorage {
         return s; // Acknowledgment retries remain safe even after pause/finish.
       }
       if (s.state !== 'recording') throw new Error('Resume the recording before adding points.');
+      this.checkSpace();
       const pending = await tx.getAllAsync<{ session_id: string }>('SELECT session_id FROM track_pending_v1 WHERE session_id = ?', id);
       if (pending.length) throw new Error('Cannot append a sealed chunk while a capture chunk is unfinished.');
       if (sequence !== s.nextChunk) throw new Error('Track chunks must be saved in order.');
@@ -113,6 +115,7 @@ export class TrackStorage {
       }
       if (expectedCount !== s.pointCount) throw new Error('Saved point count has changed. Refresh before continuing.');
       if (s.state !== 'recording') throw new Error('Resume the recording before adding points.');
+      this.checkSpace();
       if (s.nextChunk >= TRACK_LIMITS.chunks) throw new Error('Recording capacity reached. Finish it and start another.');
       if (point.timestamp < s.createdAt || (s.lastTimestamp !== null && point.timestamp <= s.lastTimestamp)) throw new Error('Track timestamps must increase across chunks.');
       points.push(point);
@@ -143,6 +146,7 @@ export class TrackStorage {
       if (s.state === target) return s;
       if (s.state === 'finished') throw new Error('Finished recordings cannot be resumed.');
       if (target === 'recording') {
+        this.checkSpace();
         const active = await tx.getAllAsync<{ id: string }>("SELECT id FROM track_sessions_v1 WHERE state = 'recording'");
         if (active.length) throw new Error('Pause or finish the current recording first.');
       }

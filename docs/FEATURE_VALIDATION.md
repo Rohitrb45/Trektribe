@@ -1,5 +1,11 @@
 # Validate the new features
 
+## Low-storage safeguards (2026-11-07)
+
+Native recording create/resume and every new point/chunk write check for at least 64 MiB of free internal storage. Saving a trail copy uses the same check. Starting or resuming a map-area download requires 256 MiB. Unreadable capacity blocks those operations with an error rather than assuming free space. Existing data remains readable/removable; recording pause/finish and exact committed-point retry acknowledgments are not blocked by the reserve check.
+
+These are preflight checks, not reserved disk allocations. The OS or another app can consume space after a check; ordinary write failures still stop capture and preserve earlier commits. Map downloads already in progress are not continuously monitored, and provider caches are not subject to a hard byte quota. Verify actual native low-space readings and recovery on a disposable test device/emulator; do not fill the development PC's disk to simulate this. Automated tests inject capacity values and verify transactional behavior without consuming disk space.
+
 ## Durable recording batches (2026-11-07)
 
 The foreground recording limit is now up to **100,000 points per new recording**, grouped into 500 chunks of 200 points. Every accepted point still commits immediately to SQLite; there is no in-memory batch waiting to be flushed. The 500-update limit in the earlier milestone below is superseded. Existing sealed chunks are preserved, so recordings made with the old one-point-per-chunk version have fewer available point slots; a recording already using all 500 slots must be finished and replaced.

@@ -1,4 +1,5 @@
 import { digestStringAsync, CryptoDigestAlgorithm } from 'expo-crypto';
+import { checkNativeStorage } from './native-storage-space';
 import { initializeSnapshots, listSnapshots, removeSnapshot, saveSnapshot, snapshotIdentity, type Snapshot, type SnapshotDatabase } from './trail-snapshots';
 
 let database: Promise<SnapshotDatabase> | undefined;
@@ -25,6 +26,7 @@ function write(task: (db: SnapshotDatabase) => Promise<void>) {
 export const readOfflineTrails = async () => listSnapshots(await open());
 export const deleteOfflineTrail = (key: string) => write(db => removeSnapshot(db, key));
 export const storeOfflineTrail = (snapshot: Snapshot) => write(async db => {
+  checkNativeStorage();
   const key = await digestStringAsync(CryptoDigestAlgorithm.SHA256, snapshotIdentity(snapshot));
   await saveSnapshot(db, key, snapshot);
 });

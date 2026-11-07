@@ -1,5 +1,7 @@
 # Configurable OIDC development mode
 
+For a concrete provider walkthrough, follow [Auth0 setup](AUTH0_SETUP.md).
+
 Demo mode remains the default. OIDC mode requires a provider that issues RS256 or ES256 JWT access tokens for a dedicated TrekTribe API audience. No provider account or credentials are bundled. Provider login and native redirect handling have not yet been tested against a live tenant.
 
 ## Backend
@@ -37,4 +39,4 @@ Register a public authorization-code client with PKCE. Allow the callback return
 
 Access tokens are stored in OS secure storage on native and in memory on web. Expiry requires signing in again; refresh tokens are not requested or stored. Sign-out clears the local session, not the provider's browser session. Web reload requires sign-in again. OIDC native sign-in requires an app build configured with the custom scheme; Expo Go is not proof of that flow.
 
-The client uses resource endpoints in OIDC mode and displays the first 50 feed posts. Blocking, private visibility, moderation, full feed navigation, and production hardening remain subsequent work; do not expose this development API publicly.
+The client uses resource endpoints in OIDC mode and displays the first 50 feed posts. Blocking, private visibility, moderation and feed pagination are implemented. Live-provider acceptance and production hardening remain pending; the development API is not approved for public deployment.
