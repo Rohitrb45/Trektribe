@@ -576,6 +576,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/recordings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPrivateTracks"];
+        put?: never;
+        post: operations["createPrivateTrack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/recordings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getPrivateTrack"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/recordings/{id}/chunks/{sequence}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["readPrivateTrackChunk"];
+        put?: never;
+        post: operations["uploadPrivateTrackChunk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/recordings/{id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["completePrivateTrack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/recordings/{id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["removePrivateTrack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -855,6 +935,33 @@ export interface components {
             items: components["schemas"]["ChatMessage"][];
             hasMore: boolean;
             nextSequence: number;
+        };
+        TrackUploadCreate: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            chunkCount: number;
+            pointCount: number;
+        };
+        TrackUploadChunk: {
+            checksum: string;
+            points: {
+                longitude: number;
+                latitude: number;
+                timestamp: number;
+                accuracy: number;
+                altitude: number | null;
+            }[];
+        };
+        TrackUploadStatus: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            chunkCount: number;
+            expectedPoints: number;
+            nextChunk: number;
+            pointCount: number;
+            completed: boolean;
         };
     };
     responses: never;
@@ -2301,6 +2408,179 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listPrivateTracks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Owner-only result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["TrackUploadStatus"][];
+                    };
+                };
+            };
+        };
+    };
+    createPrivateTrack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackUploadCreate"];
+            };
+        };
+        responses: {
+            /** @description Owner-only result */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackUploadStatus"];
+                };
+            };
+        };
+    };
+    getPrivateTrack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Owner-only result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackUploadStatus"];
+                };
+            };
+        };
+    };
+    readPrivateTrackChunk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                sequence: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Owner-only result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackUploadChunk"];
+                };
+            };
+        };
+    };
+    uploadPrivateTrackChunk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                sequence: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackUploadChunk"];
+            };
+        };
+        responses: {
+            /** @description Owner-only result */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackUploadStatus"];
+                };
+            };
+        };
+    };
+    completePrivateTrack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Owner-only result */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackUploadStatus"];
+                };
+            };
+        };
+    };
+    removePrivateTrack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Owner-only result */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        deleted: true;
+                    };
                 };
             };
         };

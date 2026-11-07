@@ -308,3 +308,11 @@ The 31 targeted offline/recording/storage tests passed, including injected low/u
 Added REMAINING_WORK.md as the current checklist, distinguished historical milestone notes, corrected stale authentication status text, and prepared AUTH0_SETUP.md from the current repository flow and official Auth0 documentation. No tenant, provider user or local environment was changed. The user requested provider setup instructions and explicitly kept physical-device testing deferred. Live identity, media, sync, background recording, appeals/erasure and deployment acceptance remain incomplete.
 
 Web, Android and iOS JavaScript exports also passed with the new native storage adapter.
+
+## 2026-11-07 — Private track upload server stage
+
+Added migration 012 for owner-scoped private recording sessions/chunks, bounded declarations, checksum verification and monotonic timestamps, transactional ordered upload/counters, exact-retry acknowledgments, owner-only listing/reading, completion and deletion tombstones. Concurrent creation uses an owner row lock for the 20-live-upload quota; chunk mutation and deletion use the recording row lock. Location payloads are removed on deletion and stale create/chunk retries cannot restore them. Canonical point serialization is now shared by mobile/server. OpenAPI schemas and generated client adapters cover all new routes; no upload UI or automatic synchronization is connected.
+
+Local checks: all 75 application tests passed, including new strict-schema, checksum and adapter retry tests, existing SQLite capture regressions and the HTTP API smoke test. Mobile/API TypeScript, API compilation and generated-contract freshness checks passed. PostgreSQL integration tests were added for migration repeatability, owner isolation, concurrent retries, sequencing, completion, final-slot quota races, deletion and real HTTP routing. They were not run locally: TEST_DATABASE_URL is absent, port 5432 is not listening and PostgreSQL/Docker tools were not found. CI's existing PostgreSQL job is the next database acceptance check; do not infer its result from the local unit tests. Device testing remains deferred.
+
+Web, Android and iOS JavaScript exports passed after the shared serialization change.

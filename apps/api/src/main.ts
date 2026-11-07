@@ -16,6 +16,7 @@ import { startRealtime } from './realtime';
 import { BlockRepository } from './blocks';
 import { ForumRepository, forumPage } from './forums';
 import { ForumManagement } from './forum-management';
+import { PrivateTracks } from './private-tracks';
 
 if(process.env.NODE_ENV==='production')throw new Error('Production startup remains disabled until all resource policies and external integrations are verified.');
 const oidc=process.env.AUTH_MODE==='oidc';
@@ -33,6 +34,14 @@ function demoOnly(){if(oidc)throw new NotFoundException();}
 
 @Controller('v1')
 class ApiController {
+ private tracks(){if(!(store instanceof PostgresStore))throw new HttpException('Private recordings require PostgreSQL.',409);return new PrivateTracks(store.pool);}
+ @Get('me/recordings') async recordings(@Req() req:any){const user=await actor(req);return this.tracks().list(user);}
+ @Get('me/recordings/:id/chunks/:sequence') async readRecordingChunk(@Req() req:any,@Param('id') id:string,@Param('sequence') sequence:string){const user=await actor(req);return this.tracks().readChunk(user,z.uuid().parse(id),z.coerce.number().int().min(0).max(499).parse(sequence));}
+ @HttpPost('me/recordings') async createRecording(@Req() req:any,@Body() body:unknown){const user=await actor(req);return this.tracks().create(user,body);}
+ @Get('me/recordings/:id') async recording(@Req() req:any,@Param('id') id:string){const user=await actor(req);return this.tracks().get(user,z.uuid().parse(id));}
+ @HttpPost('me/recordings/:id/chunks/:sequence') async recordingChunk(@Req() req:any,@Param('id') id:string,@Param('sequence') sequence:string,@Body() body:unknown){const user=await actor(req);return this.tracks().putChunk(user,z.uuid().parse(id),z.coerce.number().int().min(0).max(499).parse(sequence),body);}
+ @HttpPost('me/recordings/:id/complete') async completeRecording(@Req() req:any,@Param('id') id:string,@Body() body:unknown){const user=await actor(req);z.object({}).strict().parse(body);return this.tracks().complete(user,z.uuid().parse(id));}
+ @HttpPost('me/recordings/:id/remove') async removeRecording(@Req() req:any,@Param('id') id:string,@Body() body:unknown){const user=await actor(req);z.object({}).strict().parse(body);return this.tracks().remove(user,z.uuid().parse(id));}
  private forumManagement(){if(!(store instanceof PostgresStore))throw new HttpException('Discussions require PostgreSQL.',409);return new ForumManagement(store.pool);}
  @Get('forum/capabilities') async forumCapabilities(@Req() req:any){const user=await actor(req);return {moderator:await this.forumManagement().isModerator(user)};}
  @HttpPost('forum/:kind/:id/edit') async editForum(@Req() req:any,@Param('kind') kind:string,@Param('id') id:string,@Body() body:unknown){const user=await actor(req);return this.forumManagement().change(z.enum(['threads','replies']).parse(kind),z.uuid().parse(id),user,body);}

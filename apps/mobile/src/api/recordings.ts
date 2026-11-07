@@ -1,0 +1,10 @@
+import { apiData, createApiClient } from './client';
+import type { components } from './schema';
+type Client = ReturnType<typeof createApiClient>;
+export const listPrivateTracks = (client: Client) => apiData(client.GET('/me/recordings'));
+export const createPrivateTrack = (client: Client, body: components['schemas']['TrackUploadCreate']) => apiData(client.POST('/me/recordings', { body }));
+export const getPrivateTrack = (client: Client, id: string) => apiData(client.GET('/me/recordings/{id}', { params: { path: { id } } }));
+export const uploadPrivateTrackChunk = (client: Client, id: string, sequence: number, body: components['schemas']['TrackUploadChunk']) => apiData(client.POST('/me/recordings/{id}/chunks/{sequence}', { params: { path: { id, sequence } }, body }));
+export const readPrivateTrackChunk = (client: Client, id: string, sequence: number) => apiData(client.GET('/me/recordings/{id}/chunks/{sequence}', { params: { path: { id, sequence } } }));
+export const completePrivateTrack = (client: Client, id: string) => apiData(client.POST('/me/recordings/{id}/complete', { params: { path: { id } }, body: {} }));
+export const removePrivateTrack = (client: Client, id: string) => apiData(client.POST('/me/recordings/{id}/remove', { params: { path: { id } }, body: {} }));

@@ -1,24 +1,12 @@
+import { canonicalTrackPoints, TRACK_LIMITS, type TrackPoint } from '../../../packages/core/src/track-points';
+export { canonicalTrackPoints, TRACK_LIMITS, type TrackPoint } from '../../../packages/core/src/track-points';
 import type { SnapshotDatabase, SnapshotConnection } from './trail-snapshots';
 
-export type TrackPoint = { longitude: number; latitude: number; timestamp: number; accuracy: number; altitude: number | null };
 export type TrackSession = { id: string; title: string; state: 'recording' | 'paused' | 'finished'; createdAt: number; nextChunk: number; pointCount: number; lastTimestamp: number | null };
-export const TRACK_LIMITS = { sessions: 20, chunks: 500, pointsPerChunk: 200 } as const;
+
 type Hash = (payload: string) => Promise<string>;
 type ChunkRow = { sequence: number; checksum: string; payload: string };
 
-export function canonicalTrackPoints(input: unknown): string {
-  if (!Array.isArray(input) || !input.length || input.length > TRACK_LIMITS.pointsPerChunk) throw new Error('A track chunk must contain 1–200 points.');
-  let previous = -1;
-  return JSON.stringify(input.map(p => {
-    if (!p || !Number.isFinite(p.longitude) || Math.abs(p.longitude) > 180 ||
-        !Number.isFinite(p.latitude) || Math.abs(p.latitude) > 90 ||
-        !Number.isSafeInteger(p.timestamp) || p.timestamp < 0 || p.timestamp <= previous ||
-        !Number.isFinite(p.accuracy) || p.accuracy < 0 ||
-        (p.altitude !== null && !Number.isFinite(p.altitude))) throw new Error('Invalid or out-of-order track point.');
-    previous = p.timestamp;
-    return { longitude: p.longitude, latitude: p.latitude, timestamp: p.timestamp, accuracy: p.accuracy, altitude: p.altitude };
-  }));
-}
 const columns = 'id, title, state, created_at AS createdAt, next_chunk AS nextChunk, point_count AS pointCount, last_timestamp AS lastTimestamp';
 async function session(db: SnapshotConnection, id: string): Promise<TrackSession> {
   const [row] = await db.getAllAsync<TrackSession>(`SELECT ${columns} FROM track_sessions_v1 WHERE id = ?`, id);

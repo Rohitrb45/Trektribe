@@ -31,6 +31,8 @@ test('HTTP API enforces demo auth, validates requests, pages feed, and persists 
   const client=createApiClient(`http://127.0.0.1:${port}`,()=> 'trektribe-local-demo');
   // PostgreSQL-only endpoints must preserve their explicit unavailable response in local mode.
   for(const call of [
+    ()=>client.GET('/me/recordings'),
+    ()=>client.POST('/me/recordings',{body:{id:'00000000-0000-4000-8000-000000000001',title:'Private',chunkCount:1,pointCount:1}}),
     ()=>client.GET('/me/blocks'),
     ()=>client.POST('/me/blocks/{id}',{params:{path:{id:before.profile.id}},body:{blocked:false}}),
     ()=>client.POST('/group-treks/{id}/invitations',{params:{path:{id:before.trips[0].id}}}),

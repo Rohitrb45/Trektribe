@@ -15,6 +15,9 @@ import { MessageRepository } from '../../apps/api/src/messages';
 import { BlockRepository } from '../../apps/api/src/blocks';
 import { ForumRepository } from '../../apps/api/src/forums';
 import { ForumManagement } from '../../apps/api/src/forum-management';
+import { PrivateTracks } from '../../apps/api/src/private-tracks';
+import { canonicalTrackPoints } from '../../packages/core/src/track-points';
+import { createHash } from 'node:crypto';
 import { startRealtime } from '../../apps/api/src/realtime';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
@@ -48,11 +51,48 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
       await db.pool.query('UPDATE users SET name=$1 WHERE id=$2', ['Preserved name', DEMO_USER]);
       await migrate();
       assert.equal((await db.pool.query('SELECT name FROM users WHERE id=$1', [DEMO_USER])).rows[0].name, 'Preserved name');
-      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 11);
+      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 12);
       const state = await db.read();
       assert.equal(state.treks.length, seed.treks.length);
       assert.deepEqual(state.treks[0].coordinates, seed.treks[0].coordinates);
       assert.deepEqual(state.treks[0].route, seed.treks[0].route);
+    });
+
+    await t.test('private recordings isolate owners, serialize retries and prevent deletion resurrection', async () => {
+      const a = await db.identify({issuer:'https://tracks.example',subject:'a'});
+      const b = await db.identify({issuer:'https://tracks.example',subject:'b'});
+      const tracks = new PrivateTracks(db.pool), id = randomUUID();
+      const metadata = { id, title:'Private walk', chunkCount:2, pointCount:2 };
+      const chunk = (timestamp:number) => {
+        const points = [{longitude:77,latitude:30,timestamp,accuracy:5,altitude:null}];
+        return {points,checksum:createHash('sha256').update(canonicalTrackPoints(points)).digest('hex')};
+      };
+      const status = (code:number) => (e:unknown) => e instanceof DomainError && e.status === code;
+      await Promise.all([tracks.create(a,metadata),tracks.create(a,metadata)]);
+      assert.equal((await tracks.list(a)).items.length,1);
+      assert.equal((await tracks.list(b)).items.length,0);
+      for (const attempt of [() => tracks.get(b,id), () => tracks.putChunk(b,id,0,chunk(1)), () => tracks.complete(b,id), () => tracks.remove(b,id), () => tracks.readChunk(b,id,0)]) await assert.rejects(attempt(),status(404));
+      await assert.rejects(tracks.complete(a,id),status(409));
+      await assert.rejects(tracks.putChunk(a,id,1,chunk(2)),status(409));
+      await Promise.all([tracks.putChunk(a,id,0,chunk(1)),tracks.putChunk(a,id,0,chunk(1))]);
+      assert.equal((await tracks.get(a,id)).pointCount,1);
+      await assert.rejects(tracks.putChunk(a,id,0,chunk(2)),status(409));
+      await assert.rejects(tracks.putChunk(a,id,1,chunk(1)),status(409));
+      await tracks.putChunk(a,id,1,chunk(2));
+      assert.equal((await tracks.complete(a,id)).completed,true);
+      assert.equal((await tracks.putChunk(a,id,1,chunk(2))).pointCount,2);
+      assert.deepEqual(await tracks.readChunk(a,id,0),chunk(1));
+      await tracks.remove(a,id); await tracks.remove(a,id);
+      assert.equal((await tracks.list(a)).items.length,0);
+      assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM private_track_chunks WHERE owner_id=$1 AND track_id=$2',[a,id])).rows[0].n,0);
+      await assert.rejects(tracks.create(a,metadata),status(409));
+      await assert.rejects(tracks.putChunk(a,id,0,chunk(1)),status(404));
+      // Same local UUID on another account is independent, not an ownership transfer.
+      await tracks.create(b,metadata); assert.equal((await tracks.get(b,id)).pointCount,0);
+      for(let n=0;n<19;n++) await tracks.create(a,{...metadata,id:randomUUID()});
+      const final = await Promise.allSettled([tracks.create(a,{...metadata,id:randomUUID()}),tracks.create(a,{...metadata,id:randomUUID()})]);
+      assert.equal(final.filter(x=>x.status==='fulfilled').length,1);
+      assert.equal((await tracks.list(a)).items.length,20);
     });
 
     await t.test('blocking is bilateral, preserves existing plans and prevents invitation retries', async () => {
@@ -515,6 +555,17 @@ test('PostGIS migration, persistence, pagination, and final-slot concurrency', {
         while(Date.now()<deadline&&child.exitCode===null){try{ready=(await fetch(`${base}/v1/health`,{signal:AbortSignal.timeout(1000)})).ok;}catch{}if(ready)break;await new Promise(r=>setTimeout(r,100));}
         assert.ok(ready,logs||'API startup timed out');
         const client=createApiClient(base,()=> 'trektribe-local-demo');
+        const recordingId=randomUUID();
+        const recordingPoints=[{longitude:77,latitude:30,timestamp:1,accuracy:5,altitude:null}];
+        const recordingChunk={points:recordingPoints,checksum:createHash('sha256').update(canonicalTrackPoints(recordingPoints)).digest('hex')};
+        assert.equal((await fetch(`${base}/v1/me/recordings`)).status,401);
+        await apiData(client.POST('/me/recordings',{body:{id:recordingId,title:'HTTP private track',chunkCount:1,pointCount:1}}));
+        await apiData(client.POST('/me/recordings/{id}/chunks/{sequence}',{params:{path:{id:recordingId,sequence:0}},body:recordingChunk}));
+        assert.deepEqual(await apiData(client.GET('/me/recordings/{id}/chunks/{sequence}',{params:{path:{id:recordingId,sequence:0}}})),recordingChunk);
+        assert.equal((await apiData(client.POST('/me/recordings/{id}/complete',{params:{path:{id:recordingId}},body:{}}))).completed,true);
+        assert.ok((await apiData(client.GET('/me/recordings'))).items.some(row=>row.id===recordingId));
+        await apiData(client.POST('/me/recordings/{id}/remove',{params:{path:{id:recordingId}},body:{}}));
+        await assert.rejects(apiData(client.GET('/me/recordings/{id}',{params:{path:{id:recordingId}}})),(e:unknown)=>e instanceof ApiError&&e.status===404);
         await apiData(client.POST('/me/blocks/{id}',{params:{path:{id:other}},body:{blocked:true}}));
         assert.ok((await apiData(client.GET('/me/blocks'))).items.some(p=>p.id===other));
         await assert.rejects(apiData(client.POST('/invitations/accept',{body:{token:incoming.token}})),(e:unknown)=>e instanceof ApiError&&e.status===403);
