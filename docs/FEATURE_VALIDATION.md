@@ -1,5 +1,13 @@
 # Validate the new features
 
+## Durable recording batches (2026-11-07)
+
+The foreground recording limit is now up to **100,000 points per new recording**, grouped into 500 chunks of 200 points. Every accepted point still commits immediately to SQLite; there is no in-memory batch waiting to be flushed. The 500-update limit in the earlier milestone below is superseded. Existing sealed chunks are preserved, so recordings made with the old one-point-per-chunk version have fewer available point slots; a recording already using all 500 slots must be finished and replaced.
+
+Validate a new walk across 200 accepted fixes: the saved-point count must remain continuous at the chunk boundary. Pause or reopen with fewer than 200 points and confirm the partial route remains visible. Resume, finish with a partial chunk, reopen and inspect it, then delete and refresh. Route inspection is disabled during capture so it reads a stable saved route. A failed sealing transaction must leave the prior partial chunk and counters intact; retrying the last committed fix must not duplicate it. Integrity errors must stop appending while preserving the ability to remove the recording.
+
+Automated tests cover file reopening, partial-tail finish/removal, the 200-point sealing boundary, failure rollback, concurrent retries, conflicting/stale acknowledgments, corruption and coexistence with legacy chunks. Native runtime and physical-device endurance acceptance remain pending. No native dependency changed in this increment; use the foreground-location development build from the previous milestone.
+
 ## Foreground walk recording (2026-11-07)
 
 Rebuild/install the native app for Expo Location 19.0.8. Open **Record a walk** at the top of the app; it is available independently of API/sign-in. Name the walk and choose **Start recording**. Grant foreground location access and enable device location services. If a permission dialog causes the app to leave the foreground, start again after returning. No background-location permission or service is configured.

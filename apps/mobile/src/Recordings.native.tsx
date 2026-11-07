@@ -57,11 +57,18 @@ export default function Recordings() {
     finally { lock.current = false; if (mounted.current) setBusy(false); }
   }
   async function inspect(row: TrackSession) {
+    await recorder.current!.stop();
+    const latest = (await repository.current!.list()).find(saved => saved.id === row.id);
+    if (!latest) throw new Error('This recording is no longer available.');
+    row = latest;
     const points: [number, number][] = [];
     // Bound map geometry while reading every chunk through its integrity check.
     const stride = Math.max(1, Math.ceil(row.pointCount / 5000));
     let index = 0;
     for (let n = 0; n < row.nextChunk; n++) for (const p of await repository.current!.readChunk(row.id, n)) {
+      if (index++ % stride === 0) points.push([p.longitude, p.latitude]);
+    }
+    for (const p of await repository.current!.readPending(row.id)) {
       if (index++ % stride === 0) points.push([p.longitude, p.latitude]);
     }
     setPreview({ title: row.title, points });
@@ -79,7 +86,7 @@ export default function Recordings() {
         <Button title="Close and pause" quiet onPress={close} />
         <Text style={s.title}>Recordings</Text>
         <Text style={s.bodySmall}>Records only while this screen stays open and the app is in the foreground. Closing it, switching apps or locking the screen pauses capture. Resume manually. Recordings stay on this device, accessible without signing in; TrekTribe does not upload recordings.</Text>
-        <Text style={s.bodySmall}>Up to 500 saved location updates per recording. Poor fixes are ignored; updates are at least 10 seconds apart. Only points confirmed as saved survive an interruption.</Text>
+        <Text style={s.bodySmall}>Up to 100,000 saved points per new recording. Older recordings may have fewer available slots. Poor fixes are ignored; updates are at least 10 seconds apart. Only points confirmed as saved survive an interruption.</Text>
         {!!error && <Text accessibilityRole="alert">{error}</Text>}
         {!!state.message && <Text accessibilityLiveRegion="polite">{state.message}</Text>}
         <Text style={s.body}>{state.capturing ? 'Recording' : 'Capture stopped'} · {state.session?.pointCount ?? 0} confirmed saved points</Text>
@@ -93,7 +100,7 @@ export default function Recordings() {
             {row.state === 'recording' && <Button title="Pause" disabled={busy} onPress={() => { void act(() => recorder.current!.stop()); }} />}
             {row.state === 'paused' && <Button title="Resume" disabled={busy || state.busy || state.capturing || row.nextChunk >= 500} onPress={() => { void act(async () => { if (opened.current && AppState.currentState === 'active') await recorder.current!.begin({ resume: row }); }); }} />}
             {row.state !== 'finished' && <Button title="Finish" disabled={busy || (state.capturing && state.session?.id !== row.id)} onPress={() => { void act(async () => { if (state.session?.id === row.id) await recorder.current!.stop('finished'); else await repository.current!.transition(row.id, 'finished'); }); }} />}
-            <Button title="View recorded route" quiet disabled={busy || row.pointCount < 2} onPress={() => { void act(() => inspect(row)); }} />
+            <Button title="View recorded route" quiet disabled={busy || state.capturing || row.pointCount < 2} onPress={() => { void act(() => inspect(row)); }} />
             <Button title="Delete recording" quiet disabled={busy || state.capturing || state.busy} onPress={() => Alert.alert('Delete recording?', 'This removes the saved points from this device.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { void act(async () => { await repository.current!.remove(row.id); recorder.current!.forget(row.id); setPreview(null); }); } }])} />
           </View>;
         })}

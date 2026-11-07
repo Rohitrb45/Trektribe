@@ -5,8 +5,8 @@ export interface LocationCapture {
   watch(point: (point: TrackPoint) => void, failed: () => void): Promise<{ remove(): void }>;
 }
 export type RecorderState = { session: TrackSession | null; capturing: boolean; busy: boolean; message: string };
-type Store = Pick<TrackStorage, 'create' | 'append' | 'transition'>;
-/** Foreground only. Every accepted fix is committed as a chunk; no volatile point buffer. */
+type Store = Pick<TrackStorage, 'create' | 'appendFix' | 'transition'>;
+/** Foreground only. Every accepted fix is persisted in an unfinished chunk; no volatile point buffer. */
 export class ForegroundRecorder {
   state: RecorderState = { session: null, capturing: false, busy: false, message: '' };
   private generation = 0;
@@ -37,7 +37,7 @@ export class ForegroundRecorder {
       await this.pending;
       if (ticket !== this.generation) return;
       this.writeFailed = false;
-      if ('resume' in input && input.resume.nextChunk >= TRACK_LIMITS.chunks) throw new Error('This recording has reached 500 saved updates. Finish it and start another.');
+      if ('resume' in input && input.resume.nextChunk >= TRACK_LIMITS.chunks) throw new Error('This recording has reached its chunk capacity. Finish it and start another.');
       session = 'resume' in input ? await this.store.transition(input.resume.id, 'recording') : await this.store.create(input.id, input.title);
       this.update({ session });
       if (ticket !== this.generation) { await this.pauseStored(); return; }
@@ -71,12 +71,12 @@ export class ForegroundRecorder {
       if (!s || s.state !== 'recording' || this.writeFailed) return;
       if (point.timestamp < s.createdAt || (s.lastTimestamp !== null && point.timestamp - s.lastTimestamp < 10000)) return;
       try {
-        const saved = await this.store.append(s.id, s.nextChunk, [point]);
+        const saved = await this.store.appendFix(s.id, s.pointCount, point);
         this.update({ session: saved });
         if (saved.nextChunk >= TRACK_LIMITS.chunks) {
           this.writeFailed = true;
           this.detach(); await this.pauseStored();
-          this.update({ message: '500 updates saved. Finish this recording and start another to continue.' });
+          this.update({ message: 'Recording capacity reached. Finish this recording and start another to continue.' });
         }
       } catch {
         this.writeFailed = true;

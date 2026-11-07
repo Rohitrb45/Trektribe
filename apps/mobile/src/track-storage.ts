@@ -48,7 +48,9 @@ export class TrackStorage {
       point_count INTEGER NOT NULL DEFAULT 0, last_timestamp INTEGER);
       CREATE TABLE IF NOT EXISTS track_chunks_v1 (
       session_id TEXT NOT NULL, sequence INTEGER NOT NULL, checksum TEXT NOT NULL, payload TEXT NOT NULL,
-      PRIMARY KEY(session_id, sequence));`);
+      PRIMARY KEY(session_id, sequence));
+      CREATE TABLE IF NOT EXISTS track_pending_v1 (
+      session_id TEXT PRIMARY KEY NOT NULL, checksum TEXT NOT NULL, payload TEXT NOT NULL);`);
     await this.write(tx => tx.runAsync("UPDATE track_sessions_v1 SET state = 'paused' WHERE state = 'recording'"));
   }
   create(id: string, title: string, createdAt = Date.now()) {
@@ -76,6 +78,8 @@ export class TrackStorage {
         return s; // Acknowledgment retries remain safe even after pause/finish.
       }
       if (s.state !== 'recording') throw new Error('Resume the recording before adding points.');
+      const pending = await tx.getAllAsync<{ session_id: string }>('SELECT session_id FROM track_pending_v1 WHERE session_id = ?', id);
+      if (pending.length) throw new Error('Cannot append a sealed chunk while a capture chunk is unfinished.');
       if (sequence !== s.nextChunk) throw new Error('Track chunks must be saved in order.');
       const validated = JSON.parse(payload) as TrackPoint[];
       if (validated[0].timestamp < s.createdAt || (s.lastTimestamp !== null && validated[0].timestamp <= s.lastTimestamp)) throw new Error('Track timestamps must increase across chunks.');
@@ -83,6 +87,54 @@ export class TrackStorage {
       await tx.runAsync('UPDATE track_sessions_v1 SET next_chunk = ?, point_count = ?, last_timestamp = ? WHERE id = ?', String(sequence + 1), String(s.pointCount + validated.length), String(validated[validated.length - 1].timestamp), id);
       return session(tx, id);
     });
+  }
+  /** Persist every fix; only full chunks are sealed. expectedCount makes acknowledgment retries safe. */
+  appendFix(id: string, expectedCount: number, input: TrackPoint) {
+    let point: TrackPoint;
+    try { point = JSON.parse(canonicalTrackPoints([input]))[0]; } catch (e) { return Promise.reject(e); }
+    if (!Number.isSafeInteger(expectedCount) || expectedCount < 0) return Promise.reject(new Error('Invalid saved point count.'));
+    return this.write(async tx => {
+      const s = await session(tx, id);
+      const [pending] = await tx.getAllAsync<ChunkRow>('SELECT checksum,payload FROM track_pending_v1 WHERE session_id = ?', id);
+      let points: TrackPoint[] = [];
+      if (pending) {
+        if (await this.hash(pending.payload) !== pending.checksum) throw new Error('Unfinished track chunk failed its integrity check.');
+        points = JSON.parse(canonicalTrackPoints(JSON.parse(pending.payload)));
+      }
+      if (expectedCount === s.pointCount - 1) {
+        let previous = points.at(-1);
+        if (!previous && s.nextChunk > 0) {
+          const [last] = await tx.getAllAsync<ChunkRow>('SELECT checksum,payload FROM track_chunks_v1 WHERE session_id = ? AND sequence = ?', id, String(s.nextChunk - 1));
+          if (!last || await this.hash(last.payload) !== last.checksum) throw new Error('Saved track chunk failed its integrity check.');
+          previous = (JSON.parse(canonicalTrackPoints(JSON.parse(last.payload))) as TrackPoint[]).at(-1);
+        }
+        if (JSON.stringify(previous) === JSON.stringify(point)) return s;
+        throw new Error('Location retry conflicts with the saved point.');
+      }
+      if (expectedCount !== s.pointCount) throw new Error('Saved point count has changed. Refresh before continuing.');
+      if (s.state !== 'recording') throw new Error('Resume the recording before adding points.');
+      if (s.nextChunk >= TRACK_LIMITS.chunks) throw new Error('Recording capacity reached. Finish it and start another.');
+      if (point.timestamp < s.createdAt || (s.lastTimestamp !== null && point.timestamp <= s.lastTimestamp)) throw new Error('Track timestamps must increase across chunks.');
+      points.push(point);
+      const payload = canonicalTrackPoints(points);
+      const checksum = await this.hash(payload);
+      const sealed = points.length === TRACK_LIMITS.pointsPerChunk;
+      if (sealed) {
+        await tx.runAsync('INSERT INTO track_chunks_v1 (session_id,sequence,checksum,payload) VALUES (?,?,?,?)', id, String(s.nextChunk), checksum, payload);
+        await tx.runAsync('DELETE FROM track_pending_v1 WHERE session_id = ?', id);
+      } else {
+        await tx.runAsync('INSERT INTO track_pending_v1 (session_id,checksum,payload) VALUES (?,?,?) ON CONFLICT(session_id) DO UPDATE SET checksum = excluded.checksum, payload = excluded.payload', id, checksum, payload);
+      }
+      await tx.runAsync('UPDATE track_sessions_v1 SET next_chunk = ?, point_count = ?, last_timestamp = ? WHERE id = ?', String(s.nextChunk + (sealed ? 1 : 0)), String(s.pointCount + 1), String(point.timestamp), id);
+      return session(tx, id);
+    });
+  }
+  async readPending(id: string): Promise<TrackPoint[]> {
+    await this.queue;
+    const [row] = await this.db.getAllAsync<ChunkRow>('SELECT checksum,payload FROM track_pending_v1 WHERE session_id = ?', id);
+    if (!row) return [];
+    if (await this.hash(row.payload) !== row.checksum) throw new Error('Unfinished track chunk failed its integrity check.');
+    return JSON.parse(canonicalTrackPoints(JSON.parse(row.payload)));
   }
   transition(id: string, target: TrackSession['state']) {
     return this.write(async tx => {
@@ -113,6 +165,7 @@ export class TrackStorage {
   remove(id: string) {
     return this.write(async tx => {
       await tx.runAsync('DELETE FROM track_chunks_v1 WHERE session_id = ?', id);
+      await tx.runAsync('DELETE FROM track_pending_v1 WHERE session_id = ?', id);
       await tx.runAsync('DELETE FROM track_sessions_v1 WHERE id = ?', id);
     });
   }

@@ -72,3 +72,6 @@ A native rebuild/install is required for the new SQLite module. On Windows, use 
 ## Foreground recording build update (2026-11-07)
 
 The native app now includes Expo Location for **Record a walk**. After installing dependencies, run `npx expo prebuild --platform android --no-install` from `apps/mobile` to apply the foreground permission plugin to an existing generated Android project, then run the Windows Android helper from the repository root. This change requests coarse/fine foreground location only; background location and foreground services are not enabled. The recording screen explains the 500-update limit and pauses when closed or backgrounded. See FEATURE_VALIDATION.md for the acceptance steps. iOS requires its own native rebuild and permission/runtime validation.
+
+
+Recording capacity update (2026-11-07): foreground capture now persists partial chunks after every fix and seals them at 200 points. New sessions support up to 100,000 points; existing chunks retain their slots. This supersedes the earlier 500-update capture limit. No additional native rebuild is needed if the Expo Location build is already installed. See FEATURE_VALIDATION.md for remaining acceptance checks.

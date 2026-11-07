@@ -22,6 +22,80 @@ function adapter(sqlite: DatabaseSync): SnapshotDatabase {
 }
 const hash = async (value: string) => createHash('sha256').update(value).digest('hex');
 const point = (timestamp: number) => ({ longitude: 77, latitude: 30, timestamp, accuracy: 5, altitude: null });
+test('partial capture chunks survive reopening and finish without losing saved fixes', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'trek-pending-'));
+  let sql = new DatabaseSync(join(dir, 'tracks.db'));
+  try {
+    let store = new TrackStorage(adapter(sql), hash); await store.initialize();
+    await store.create('walk', 'Walk', 1);
+    await store.appendFix('walk', 0, point(2)); await store.appendFix('walk', 1, point(3));
+    sql.close(); sql = new DatabaseSync(join(dir, 'tracks.db'));
+    store = new TrackStorage(adapter(sql), hash); await store.initialize();
+    assert.equal((await store.list())[0].pointCount, 2);
+    assert.equal((await store.list())[0].nextChunk, 0);
+    assert.deepEqual(await store.readPending('walk'), [point(2), point(3)]);
+    assert.equal((await store.appendFix('walk', 1, point(3))).pointCount, 2);
+    await store.transition('walk', 'finished');
+    assert.deepEqual(await store.readPending('walk'), [point(2), point(3)]);
+    await store.remove('walk'); assert.deepEqual(await store.readPending('walk'), []);
+  } finally { sql.close(); rmSync(dir, { recursive: true }); }
+});
+test('capture seals 200 points atomically, retries safely across sealing and preserves legacy chunks', async () => {
+  const sql = new DatabaseSync(':memory:'); const store = new TrackStorage(adapter(sql), hash);
+  try {
+    await store.initialize(); await store.create('walk', 'Walk', 1);
+    await store.append('walk', 0, [point(2)]);
+    for (let n = 0; n < 199; n++) await store.appendFix('walk', n + 1, point(n + 3));
+    sql.exec("CREATE TRIGGER reject_counter BEFORE UPDATE OF next_chunk ON track_sessions_v1 BEGIN SELECT RAISE(ABORT, 'write failure'); END");
+    await assert.rejects(store.appendFix('walk', 200, point(202)), /write failure/);
+    assert.equal((await store.readPending('walk')).length, 199);
+    assert.equal((await store.list())[0].nextChunk, 1);
+    sql.exec('DROP TRIGGER reject_counter');
+    await store.appendFix('walk', 200, point(202));
+    assert.equal((await store.readChunk('walk', 1)).length, 200);
+    assert.deepEqual(await store.readChunk('walk', 0), [point(2)]);
+    assert.deepEqual(await store.readPending('walk'), []);
+    assert.equal((await store.appendFix('walk', 200, point(202))).pointCount, 201);
+    await assert.rejects(store.appendFix('walk', 200, point(203)), /conflicts/);
+    await assert.rejects(store.appendFix('walk', 0, point(3)), /count has changed/);
+    await store.appendFix('walk', 201, point(203));
+    assert.deepEqual(await store.readPending('walk'), [point(203)]);
+    await assert.rejects(store.append('walk', 2, [point(204)]), /unfinished/);
+  } finally { sql.close(); }
+});
+test('partial chunk corruption stops capture and remains removable', async () => {
+  const sql = new DatabaseSync(':memory:'); const store = new TrackStorage(adapter(sql), hash);
+  try {
+    await store.initialize(); await store.create('walk', 'Walk', 1);
+    await Promise.all([store.appendFix('walk', 0, point(2)), store.appendFix('walk', 0, point(2))]);
+    assert.equal((await store.list())[0].pointCount, 1);
+    sql.exec("UPDATE track_pending_v1 SET payload = '[]'");
+    await assert.rejects(store.appendFix('walk', 1, point(3)), /integrity/);
+    await assert.rejects(store.readPending('walk'), /integrity/);
+    assert.equal((await store.list())[0].pointCount, 1);
+    await store.remove('walk'); assert.deepEqual(await store.list(), []);
+  } finally { sql.close(); }
+});
+test('the final partial chunk seals at 100,000 points and rejects further fixes', async () => {
+  const sql = new DatabaseSync(':memory:'); const store = new TrackStorage(adapter(sql), hash);
+  try {
+    await store.initialize(); await store.create('walk', 'Walk', 1);
+    // A consistent nearly-full database fixture avoids 100,000 separate test transactions.
+    for (let sequence = 0; sequence < 499; sequence++) {
+      const payload = canonicalTrackPoints(Array.from({ length: 200 }, (_, i) => point(sequence * 200 + i + 1)));
+      sql.prepare('INSERT INTO track_chunks_v1 VALUES (?,?,?,?)').run('walk', sequence, await hash(payload), payload);
+    }
+    const tail = canonicalTrackPoints(Array.from({ length: 199 }, (_, i) => point(99801 + i)));
+    sql.prepare('INSERT INTO track_pending_v1 VALUES (?,?,?)').run('walk', await hash(tail), tail);
+    sql.exec("UPDATE track_sessions_v1 SET next_chunk = 499, point_count = 99999, last_timestamp = 99999");
+    const last = await store.appendFix('walk', 99999, point(100000));
+    assert.equal(last.nextChunk, 500); assert.equal(last.pointCount, 100000);
+    assert.deepEqual(await store.readPending('walk'), []);
+    assert.equal((await store.readChunk('walk', 499)).length, 200);
+    assert.equal((await store.appendFix('walk', 99999, point(100000))).pointCount, 100000);
+    await assert.rejects(store.appendFix('walk', 100000, point(100001)), /capacity/);
+  } finally { sql.close(); }
+});
 test('committed chunks survive reopening; interrupted recording pauses and retries do not duplicate', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'trek-track-'));
   let sql = new DatabaseSync(join(dir, 'tracks.db'));

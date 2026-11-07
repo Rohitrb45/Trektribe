@@ -25,12 +25,12 @@ function fixture() {
     transition: async (id: string, state: TrackSession['state']) => {
       const row = { ...rows.get(id)!, state }; rows.set(id, row); return row;
     },
-    append: async (id: string, sequence: number, points: TrackPoint[]) => {
+    appendFix: async (id: string, expectedCount: number, point: TrackPoint) => {
       if (failWrite) throw new Error('disk full');
       const row = rows.get(id)!;
-      assert.equal(row.state, 'recording'); assert.equal(sequence, row.nextChunk);
-      writes.push(...points);
-      const saved = { ...row, nextChunk: sequence + 1, pointCount: row.pointCount + points.length, lastTimestamp: points.at(-1)!.timestamp };
+      assert.equal(row.state, 'recording'); assert.equal(expectedCount, row.pointCount);
+      writes.push(point);
+      const saved = { ...row, nextChunk: Math.floor((row.pointCount + 1) / 200), pointCount: row.pointCount + 1, lastTimestamp: point.timestamp };
       rows.set(id, saved); return saved;
     },
   };
@@ -82,8 +82,8 @@ test('provider errors stop capture and old error callbacks cannot stop a resumed
 });
 test('capacity pauses capture after the final durable point', async () => {
   const f = fixture(); await f.recorder.begin({ id: 'a', title: 'Walk' }); await f.recorder.stop();
-  f.rows.set('a', { ...f.rows.get('a')!, nextChunk: 499, pointCount: 499 });
+  f.rows.set('a', { ...f.rows.get('a')!, nextChunk: 499, pointCount: 99999 });
   await f.recorder.begin({ resume: f.rows.get('a')! }); f.emit(point(10000)); await tick();
-  assert.equal(f.recorder.state.capturing, false); assert.equal(f.rows.get('a')?.pointCount, 500);
-  assert.equal(f.rows.get('a')?.state, 'paused'); assert.match(f.recorder.state.message, /500/);
+  assert.equal(f.recorder.state.capturing, false); assert.equal(f.rows.get('a')?.pointCount, 100000);
+  assert.equal(f.rows.get('a')?.state, 'paused'); assert.match(f.recorder.state.message, /capacity/);
 });
