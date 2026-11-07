@@ -13,4 +13,65 @@ Official installation: https://rnmapbox.github.io/docs/install . The installed p
 
 ## Verification limits
 
-JavaScript exports and TypeScript do not establish native SDK compatibility. Android Gradle/iOS CocoaPods compilation, real token rendering, device lifecycle and attribution placement still need validation. No physical-device acceptance is claimed. Offline maps, GPS recording, user location and media uploads remain separate work.
+The Android x86_64 debug APK compiled, installed and displayed the application on the API 37 emulator. On 2026-11-01, hardware graphics rendered live terrain tiles and the sample route with camera framing, panning, double-tap zoom, Mapbox logo and an opening attribution dialog. A controlled missing-style HTTP 404 displayed the labeled fallback and retry button; restoring the normal style and tapping **Retry map** recovered the live map. A brief Home/application-resume transition preserved the map.
+
+Evidence: [live map](images/android-native-map.png), [failure fallback](images/android-map-fallback.png). The fallback screenshot includes Expo's development error notification from the intentional 404. The temporary test style was removed and the user's token was not changed.
+
+ARM64 Android, iOS, physical devices, process death, screen lock and extended lifecycle testing remain pending. Invalid-token and interrupted-network acceptance were not established by the 404 test; cached map resources can remain visible without a network connection. Offline downloads, GPS recording, user location and media uploads remain separate work.
+
+## Windows Android build setup (2026-10-28)
+
+Android Studio can bundle Java 25, which does not run this project's Gradle 8.14.3 build. Use JDK 17; do not upgrade Gradle independently of Expo/React Native. A verified Temurin JDK can be kept locally under `.tmp/android-tools/jdk17` or configured through JAVA_HOME.
+
+From the repository root, run `powershell -ExecutionPolicy Bypass -File scripts/android.ps1` to build/install through Expo. Use `-BuildOnly` to assemble without a device. The helper discovers the standard Android SDK and project-local JDK/Node; it sets environment variables only for its process. Start a device through Android Studio Device Manager when testing interactively.
+
+Generated `apps/mobile/android` and `apps/mobile/ios` folders are ignored. Keep native configuration in Expo config/plugins so regeneration preserves it. No token belongs in committed native files.
+### Short Windows build paths
+
+The launcher uses an unused drive alias (`T:` by default) for this checkout to avoid Ninja's 260-character filename limit. It refuses to replace a drive belonging to another directory; choose `-Drive U` if needed. The alias stays available for Metro and incremental builds.
+
+For an emulator APK only:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/android.ps1 -BuildOnly -Architecture x86_64
+```
+
+For a Moto/ARM64 APK use `-Architecture arm64-v8a`. A debug APK requires Metro; use the launcher without `-BuildOnly` to install and start through Expo. An emulator APK cannot be used on the Moto phone.
+
+Expo is pinned to 54.0.37 with a root override to avoid mixing newer Expo peer dependencies into this SDK 54 app. Mapbox belongs only in the mobile workspace. Original manifests from before the repair were preserved locally under `.tmp/package.before-android-fix.json` and `.tmp/package-lock.before-android-fix.json`.
+
+## Emulator troubleshooting
+
+- Start the emulator in Android Studio Device Manager before running the launcher. A previously started emulator with `-no-window` can receive the app without displaying it. Stop that emulator, then start it interactively; its window may appear separately from Android Studio.
+- Keep the Expo terminal running. Press `a` there to reopen the installed app. Use the Metro port printed in that terminal; it may be 8082 when 8081 is occupied.
+- If the map falls back to an illustration, connect the emulator to `AndroidWifi`, then tap **Retry map**. Use Hardware/Automatic emulator graphics: the tested SwiftShader configuration exceeded its vertex-uniform limit when rendering the outdoors style.
+- If a build still references old long CMake paths, rerun the helper with `-ResetNativeCache`. This removes only generated native build caches.
+
+## Basemap download controls (2026-11-03)
+
+Native trail details now offer Download map area, progress, Pause, Resume and Remove controls using the Mapbox offline SDK. Downloads use the same outdoors style as the live map, cover the route bounds plus a small margin, and include zoom levels 10–14. Areas wider or taller than 0.5 degrees, polar/dateline-spanning geometry and malformed routes are rejected before download. A SHA-256 identifier of the style, bounds and zoom range reuses identical map areas on this device. Different areas are separate packs.
+
+This is basemap storage, not a complete offline trail library. Server-backed trail details still require API access; no route snapshot, GPS recording or background tracking has been added. Removing a pack releases its offline-region reservation; provider caches and shared style resources can remain. If a route changes area, its previous pack is not automatically deleted. Profile now includes a device-wide map-download library for finding and removing existing areas, including previous route versions. Storage quotas remain follow-up work.
+
+To validate, open a sample trail in Local demo mode, start its map download, pause and resume, and wait for Map area downloaded. Reopen the trail and confirm the stored status. Disable networking and inspect the downloaded area at supported zooms; then reconnect and remove the pack. A visible cached tile alone does not establish a completed offline download. Physical-device and iOS acceptance remain pending.
+## Download library (2026-11-04)
+
+Open Profile → Map downloads in a configured native build. Refresh lists TrekTribe packs directly from the provider store without matching them against the current trail catalog. New packs retain a short trail title; older packs show a generic area identifier. Identical regions still reuse one pack, so their label can be the title used when first downloaded. Downloads are device-wide and shared across accounts on that device.
+
+Remove stops the transfer before deleting the region. An unreadable status remains listed so the region can still be removed; a failed deletion displays an error instead of claiming success. Only names in TrekTribe's versioned pack namespace are eligible. This library manages basemap resources; it does not open cached route details or bypass the application's API/sign-in startup requirements. Web does not show native download management.
+## Download limits and reported sizes
+
+The app allows up to 10 TrekTribe map areas per device. New-area inventory checks and creation are serialized within the app so simultaneous requests cannot consume the final slot twice. Resuming or reusing an existing region does not consume a slot. If an older installation already has more than 10 areas, they remain available for removal; nothing is automatically deleted.
+
+Profile shows the provider's completed-resource byte count for each area and their sum. Missing or invalid size reports are labeled unavailable. Shared resources can be counted in multiple packs and provider caches are excluded, so this is not a disk-usage measurement or a hard byte quota. Interrupted downloads and changing provider estimates are refreshed through the existing status controls. Disk-space enforcement remains pending.
+## Offline trail copies (2026-11-04)
+
+Trail details now offer **Save offline copy**, backed by Expo SQLite. **Offline trails** at the top of the native app opens these copies even before sign-in or while the API is unavailable. This supersedes the earlier route-snapshot limitation above. Save route details and download the basemap separately; neither action implies the other is complete. Up to 20 copies are retained, with saved timestamps and explicit removal. Copies remain accessible after sign-out on the same device.
+
+A native rebuild/install is required for the new SQLite module. On Windows, use `powershell -ExecutionPolicy Bypass -File scripts/android.ps1 -Architecture x86_64` for the emulator. A development APK requires Metro for JavaScript; full offline cold-start acceptance requires a build with bundled JavaScript. See FEATURE_VALIDATION.md for checks and remaining acceptance gaps.
+## Foreground recording build update (2026-11-07)
+
+The native app now includes Expo Location for **Record a walk**. After installing dependencies, run `npx expo prebuild --platform android --no-install` from `apps/mobile` to apply the foreground permission plugin to an existing generated Android project, then run the Windows Android helper from the repository root. This change requests coarse/fine foreground location only; background location and foreground services are not enabled. The recording screen explains the 500-update limit and pauses when closed or backgrounded. See FEATURE_VALIDATION.md for the acceptance steps. iOS requires its own native rebuild and permission/runtime validation.
+
+
+Recording capacity update (2026-11-07): foreground capture now persists partial chunks after every fix and seals them at 200 points. New sessions support up to 100,000 points; existing chunks retain their slots. This supersedes the earlier 500-update capture limit. No additional native rebuild is needed if the Expo Location build is already installed. See FEATURE_VALIDATION.md for remaining acceptance checks.

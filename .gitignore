@@ -10,3 +10,5 @@ data/
 .qa/
 .test-data-*/
 .api-test-*/
+apps/mobile/android/
+apps/mobile/ios/

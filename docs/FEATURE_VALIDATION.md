@@ -1,5 +1,57 @@
 # Validate the new features
 
+## Durable recording batches (2026-11-07)
+
+The foreground recording limit is now up to **100,000 points per new recording**, grouped into 500 chunks of 200 points. Every accepted point still commits immediately to SQLite; there is no in-memory batch waiting to be flushed. The 500-update limit in the earlier milestone below is superseded. Existing sealed chunks are preserved, so recordings made with the old one-point-per-chunk version have fewer available point slots; a recording already using all 500 slots must be finished and replaced.
+
+Validate a new walk across 200 accepted fixes: the saved-point count must remain continuous at the chunk boundary. Pause or reopen with fewer than 200 points and confirm the partial route remains visible. Resume, finish with a partial chunk, reopen and inspect it, then delete and refresh. Route inspection is disabled during capture so it reads a stable saved route. A failed sealing transaction must leave the prior partial chunk and counters intact; retrying the last committed fix must not duplicate it. Integrity errors must stop appending while preserving the ability to remove the recording.
+
+Automated tests cover file reopening, partial-tail finish/removal, the 200-point sealing boundary, failure rollback, concurrent retries, conflicting/stale acknowledgments, corruption and coexistence with legacy chunks. Native runtime and physical-device endurance acceptance remain pending. No native dependency changed in this increment; use the foreground-location development build from the previous milestone.
+
+## Foreground walk recording (2026-11-07)
+
+Rebuild/install the native app for Expo Location 19.0.8. Open **Record a walk** at the top of the app; it is available independently of API/sign-in. Name the walk and choose **Start recording**. Grant foreground location access and enable device location services. If a permission dialog causes the app to leave the foreground, start again after returning. No background-location permission or service is configured.
+
+- Move outdoors (or send spaced emulator GPS fixes) and verify the confirmed saved-point count increases. Fixes with missing accuracy, accuracy worse than 100 m, invalid coordinates or timestamps less than 10 seconds after the previous saved fix are ignored.
+- Pause, move, and confirm the count stays unchanged. Resume, then Finish; finished sessions cannot resume. View recorded route requires two saved points. Preview lines join saved positions even across pauses, and do not establish continuous tracking.
+- Close the recording screen, switch apps, or lock the screen: capture must stop. Return and resume explicitly. Kill/reopen the app and verify committed points remain and interrupted sessions reopen paused. A development build still requires Metro for JavaScript on startup.
+- Deny location permission, disable location services, and exercise failure/retry paths. A storage failure must stop capture without increasing the confirmed saved count. Previously committed points must remain readable.
+- Delete a recording through its confirmation dialog, refresh and verify it disappears. Recordings are shared on this device, accessible without sign-in; TrekTribe does not upload them. OS backups/device access remain governed by platform settings.
+
+The current capture limit is 500 saved updates per recording (one point per durable chunk), not a guaranteed recording duration. Capture auto-pauses at capacity; finish and start another recording. This favors immediate persistence over buffered capture. Larger durable batches, background capture, sync, physical-device accuracy/battery and extended lifecycle acceptance remain follow-up work. Automated controller tests cover permission denial, delayed callbacks, cancellation during startup, write failures, provider errors and the final recording slot.
+
+## Recording storage foundation (2026-11-07)
+
+There is no new recording button yet: this increment implements the persistence layer that GPS capture will use. Run `node --import tsx --test tests/track-storage.test.ts` with Node 22.13+. Tests open a real SQLite file, save numbered chunks, close/reopen it, verify interrupted sessions become paused, resume and finish, then remove all associated data. They also cover concurrent duplicate retries, conflicting payloads, ordering, integrity failures, an injected write failure with rollback, and capacity recovery after deletion.
+
+The native adapter `openTrackStorage()` opens a separate device-local database and injects Expo Crypto SHA-256. It does not request location permission, upload tracks or expose them through Offline trails. Storage is local-only, not encrypted or scoped to a signed-in account. A future recording UI must make device-local access clear before capture and must not publish tracks automatically. No real GPS, native SQLite runtime, background capture, screen-lock, permission-change, battery or full-disk acceptance is claimed by these tests.
+
+## Offline trail copies (2026-11-04)
+
+Rebuild/install the native development app after pulling this change: it adds Expo SQLite. Open a trail, choose **Save offline copy**, then use **Offline trails** at the top of the app. This viewer is accessible before sign-in and independently of API loading. Copies are shared by everyone using this device; no account, membership or authentication data is stored with them.
+
+1. Save a trail and inspect its title, description, metrics, saved time and route in Offline trails.
+2. Save it again: the same source, trail, version and geometry update the existing copy. Changed versions or geometry retain separate copies.
+3. Download its map area separately for terrain. Disconnect the API/network and reopen Offline trails; details must remain available. A development build still needs Metro to load JavaScript on cold startup, so use a bundled build for a full airplane-mode cold-start test.
+4. Remove the copy and refresh; the map download and server saved-trail preference must remain unchanged.
+5. Verify the 20-copy limit, updating an existing copy at capacity, and saving again after removal. Failed storage operations must show an error without claiming success.
+
+Automated tests use real SQLite for persistence/reopening, capacity, updates, removal, malformed rows and parameterized values. Emulator UI, native SQLite runtime, airplane-mode cold startup and physical-device acceptance for this new viewer remain pending. GPS recording and sync queues are not part of this change.
+
+## Map limits and reported sizes (2026-11-04)
+
+Profile → Map downloads shows the number of areas, per-area reported resource sizes and a reported-resource total. Unknown sizes must be labeled; shared resources may be counted more than once, and provider caches are outside this total. New downloads stop at 10 TrekTribe areas with instructions to remove one from Profile. Existing areas remain resumable; existing installations above the limit are not automatically pruned. Removing an area permits a replacement. Automated tests cover concurrent creation at the final slot and recovery after failed operations. Native UI acceptance for these controls remains pending.
+
+## Download library (2026-11-04)
+
+In a configured native build, download a trail area, then open Profile → Map downloads and refresh. New packs should show the trail title; older packs may show an area identifier. A changed or removed trail must not hide its earlier downloaded region. Remove an area and refresh to verify it disappears; saved trails must remain unchanged. A failed status read should retain a removable entry, and a failed deletion should show an error. Packs are shared on the device across accounts. Automated tests cover these storage boundaries; native library UI acceptance remains pending.
+
+## Native basemap downloads (2026-11-03)
+
+In the Android development build, open a sample trail in Local demo mode and scroll below its map. Tap **Download map area**, pause, reopen the trail, and resume. Wait for **Map area downloaded**, then use **Refresh download status** to reread the SDK's stored state. Reopen the trail with Wi-Fi disabled and inspect the downloaded area; reconnect afterward. Tap **Remove map download** and refresh to confirm it is no longer listed. Provider caches may still display tiles after removal.
+
+The Android emulator passed partial-progress persistence across restart, resume/completion, Wi-Fi-disabled viewing and removal. [Completed download](images/android-map-download.png) and [Wi-Fi-disabled view](images/android-map-download-offline.png) are recorded. The latter is a sample-route check in a running debug app, not a cold-start, all-zoom-level or physical-device offline guarantee. Downloads cover basemap resources only; API-backed trail details and GPS tracks are not stored by this feature.
+
 ## Local demo
 
 Start `npm run web` with Node 22.13+.
@@ -168,4 +220,4 @@ Run `npm test` for request serialization and error handling. Run `npm run test:d
 
 Run `npm run typecheck` to verify both ends of Socket.IO send, sync, presence, away and change notifications. `npm test` checks strict input validation. Existing PostgreSQL/Redis integration tests exercise retries, conflicting IDs, forged identity rejection, reconnect backfill, revoked membership and cross-server notifications. The contracts preserve existing wire payloads and draft behavior; real-device lifecycle checks remain pending.
 
-Native map adapter implementation (2026-10-27): trail details now use a Mapbox native component with a labeled fallback. Token configuration, native binary builds and device rendering remain pending. See [NATIVE_MAPS.md](NATIVE_MAPS.md).
+Native map validation (2026-11-01): Android x86_64 live tiles, sample-route framing, pan/zoom, attribution and provider-error fallback/retry passed with hardware graphics. Start a visible Android emulator, then run `powershell -ExecutionPolicy Bypass -File scripts/android.ps1`. Open a trail and repeat these checks. For pending network-interruption acceptance, disconnect networking and request uncached resources; existing cached tiles do not prove offline-download support. Verify any fallback label and **Retry map** remain visible, then reconnect and retry. Physical-device, invalid-token and extended lifecycle acceptance remain pending. See [NATIVE_MAPS.md](NATIVE_MAPS.md) for evidence.

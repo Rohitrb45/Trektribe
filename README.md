@@ -26,7 +26,7 @@ npm run android -w @trektribe/mobile
 npm run ios -w @trektribe/mobile
 ```
 
-The project pins Expo SDK 54 and its matching React / React Native versions. Use a compatible development build; compatibility with the currently installed Expo Go version is not assumed. Native binaries and device testing are not included in this milestone.
+The project pins Expo SDK 54 and its matching React / React Native versions. Native maps require a development build, not Expo Go. An Android emulator debug build has been compiled and launched; physical-device acceptance remains pending. On Windows, use `powershell -ExecutionPolicy Bypass -File scripts/android.ps1` from the repository root. See [native setup and troubleshooting](docs/NATIVE_MAPS.md).
 
 ## What works
 

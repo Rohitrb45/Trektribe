@@ -4,6 +4,7 @@ import type { State } from '@trektribe/core';
 import { apiUrl } from '../data';
 import { Icon } from '../Art';
 import { Avatar, Button, Label, s } from '../ui';
+import DownloadLibrary from '../DownloadLibrary';
 
 type Props = {
   state: State;
@@ -55,6 +56,7 @@ export function ProfileScreen({
         />
       </View>
       <View style={{ flex: 1, gap: 20 }}>
+        <DownloadLibrary />
         <View style={s.panel}>
           <Label>PACKED & READY</Label>
           <Text style={s.sectionTitle}>The gear list</Text>
