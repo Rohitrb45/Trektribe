@@ -1,0 +1,119 @@
+import type { SnapshotDatabase, SnapshotConnection } from './trail-snapshots';
+
+export type TrackPoint = { longitude: number; latitude: number; timestamp: number; accuracy: number; altitude: number | null };
+export type TrackSession = { id: string; title: string; state: 'recording' | 'paused' | 'finished'; createdAt: number; nextChunk: number; pointCount: number; lastTimestamp: number | null };
+export const TRACK_LIMITS = { sessions: 20, chunks: 500, pointsPerChunk: 200 } as const;
+type Hash = (payload: string) => Promise<string>;
+type ChunkRow = { sequence: number; checksum: string; payload: string };
+
+export function canonicalTrackPoints(input: unknown): string {
+  if (!Array.isArray(input) || !input.length || input.length > TRACK_LIMITS.pointsPerChunk) throw new Error('A track chunk must contain 1–200 points.');
+  let previous = -1;
+  return JSON.stringify(input.map(p => {
+    if (!p || !Number.isFinite(p.longitude) || Math.abs(p.longitude) > 180 ||
+        !Number.isFinite(p.latitude) || Math.abs(p.latitude) > 90 ||
+        !Number.isSafeInteger(p.timestamp) || p.timestamp < 0 || p.timestamp <= previous ||
+        !Number.isFinite(p.accuracy) || p.accuracy < 0 ||
+        (p.altitude !== null && !Number.isFinite(p.altitude))) throw new Error('Invalid or out-of-order track point.');
+    previous = p.timestamp;
+    return { longitude: p.longitude, latitude: p.latitude, timestamp: p.timestamp, accuracy: p.accuracy, altitude: p.altitude };
+  }));
+}
+const columns = 'id, title, state, created_at AS createdAt, next_chunk AS nextChunk, point_count AS pointCount, last_timestamp AS lastTimestamp';
+async function session(db: SnapshotConnection, id: string): Promise<TrackSession> {
+  const [row] = await db.getAllAsync<TrackSession>(`SELECT ${columns} FROM track_sessions_v1 WHERE id = ?`, id);
+  if (!row) throw new Error('Recording session was not found.');
+  return row;
+}
+
+/** Local-only storage. No publishing or upload operation is exposed. One instance per database. */
+export class TrackStorage {
+  private queue: Promise<unknown> = Promise.resolve();
+  constructor(private db: SnapshotDatabase, private hash: Hash) {}
+  private write<T>(task: (tx: SnapshotConnection) => Promise<T>): Promise<T> {
+    const result = this.queue.then(async () => {
+      let value!: T;
+      await this.db.withExclusiveTransactionAsync(async tx => { value = await task(tx); });
+      return value;
+    });
+    this.queue = result.catch(() => {});
+    return result;
+  }
+  /** Call once on database startup, before accepting capture: interrupted sessions require explicit resume. */
+  async initialize() {
+    await this.db.execAsync(`CREATE TABLE IF NOT EXISTS track_sessions_v1 (
+      id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL,
+      state TEXT NOT NULL CHECK(state IN ('recording','paused','finished')),
+      created_at INTEGER NOT NULL, next_chunk INTEGER NOT NULL DEFAULT 0,
+      point_count INTEGER NOT NULL DEFAULT 0, last_timestamp INTEGER);
+      CREATE TABLE IF NOT EXISTS track_chunks_v1 (
+      session_id TEXT NOT NULL, sequence INTEGER NOT NULL, checksum TEXT NOT NULL, payload TEXT NOT NULL,
+      PRIMARY KEY(session_id, sequence));`);
+    await this.write(tx => tx.runAsync("UPDATE track_sessions_v1 SET state = 'paused' WHERE state = 'recording'"));
+  }
+  create(id: string, title: string, createdAt = Date.now()) {
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id) || !title.trim() || title.length > 200 || !Number.isSafeInteger(createdAt) || createdAt < 0) return Promise.reject(new Error('Invalid recording session.'));
+    return this.write(async tx => {
+      const rows = await tx.getAllAsync<{ id: string }>('SELECT id FROM track_sessions_v1');
+      if (rows.length >= TRACK_LIMITS.sessions) throw new Error('Remove a recording before creating another (20 maximum).');
+      const active = await tx.getAllAsync<{ id: string }>("SELECT id FROM track_sessions_v1 WHERE state = 'recording'");
+      if (active.length) throw new Error('Pause or finish the current recording first.');
+      await tx.runAsync("INSERT INTO track_sessions_v1 (id,title,state,created_at) VALUES (?,?,'recording',?)", id, title.trim(), String(createdAt));
+      return session(tx, id);
+    });
+  }
+  append(id: string, sequence: number, points: TrackPoint[]) {
+    // Capture immutable input before asynchronous work or a caller mutates its buffer.
+    let payload: string;
+    try { payload = canonicalTrackPoints(points); } catch (e) { return Promise.reject(e); }
+    if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence >= TRACK_LIMITS.chunks) return Promise.reject(new Error('Invalid track chunk number or recording limit reached.'));
+    return this.write(async tx => {
+      const s = await session(tx, id);
+      const [existing] = await tx.getAllAsync<ChunkRow>('SELECT sequence, checksum, payload FROM track_chunks_v1 WHERE session_id = ? AND sequence = ?', id, String(sequence));
+      const checksum = await this.hash(payload);
+      if (existing) {
+        if (existing.checksum !== checksum || existing.payload !== payload) throw new Error('Track chunk conflicts with previously saved points.');
+        return s; // Acknowledgment retries remain safe even after pause/finish.
+      }
+      if (s.state !== 'recording') throw new Error('Resume the recording before adding points.');
+      if (sequence !== s.nextChunk) throw new Error('Track chunks must be saved in order.');
+      const validated = JSON.parse(payload) as TrackPoint[];
+      if (validated[0].timestamp < s.createdAt || (s.lastTimestamp !== null && validated[0].timestamp <= s.lastTimestamp)) throw new Error('Track timestamps must increase across chunks.');
+      await tx.runAsync('INSERT INTO track_chunks_v1 (session_id,sequence,checksum,payload) VALUES (?,?,?,?)', id, String(sequence), checksum, payload);
+      await tx.runAsync('UPDATE track_sessions_v1 SET next_chunk = ?, point_count = ?, last_timestamp = ? WHERE id = ?', String(sequence + 1), String(s.pointCount + validated.length), String(validated[validated.length - 1].timestamp), id);
+      return session(tx, id);
+    });
+  }
+  transition(id: string, target: TrackSession['state']) {
+    return this.write(async tx => {
+      const s = await session(tx, id);
+      if (!['recording', 'paused', 'finished'].includes(target)) throw new Error('Invalid recording state.');
+      if (s.state === target) return s;
+      if (s.state === 'finished') throw new Error('Finished recordings cannot be resumed.');
+      if (target === 'recording') {
+        const active = await tx.getAllAsync<{ id: string }>("SELECT id FROM track_sessions_v1 WHERE state = 'recording'");
+        if (active.length) throw new Error('Pause or finish the current recording first.');
+      }
+      await tx.runAsync('UPDATE track_sessions_v1 SET state = ? WHERE id = ?', target, id);
+      return session(tx, id);
+    });
+  }
+  async list() {
+    await this.queue;
+    return this.db.getAllAsync<TrackSession>(`SELECT ${columns} FROM track_sessions_v1 ORDER BY created_at DESC, id`);
+  }
+  async readChunk(id: string, sequence: number): Promise<TrackPoint[]> {
+    await this.queue;
+    const [row] = await this.db.getAllAsync<ChunkRow>('SELECT sequence,checksum,payload FROM track_chunks_v1 WHERE session_id = ? AND sequence = ?', id, String(sequence));
+    if (!row) throw new Error('Track chunk was not found.');
+    if (await this.hash(row.payload) !== row.checksum) throw new Error('Saved track chunk failed its integrity check.');
+    const points: unknown = JSON.parse(row.payload);
+    return JSON.parse(canonicalTrackPoints(points)) as TrackPoint[];
+  }
+  remove(id: string) {
+    return this.write(async tx => {
+      await tx.runAsync('DELETE FROM track_chunks_v1 WHERE session_id = ?', id);
+      await tx.runAsync('DELETE FROM track_sessions_v1 WHERE id = ?', id);
+    });
+  }
+}

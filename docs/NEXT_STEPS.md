@@ -32,6 +32,8 @@ Acceptance: acknowledged messages survive reconnects; removed members lose acces
 
 ## 5. Offline maps and recorded tracks
 
+Progress (2026-11-07, recording storage): a native SQLite repository now supports local-only recording sessions, numbered SHA-256 point chunks, atomic append/counter updates, duplicate-safe retries, integrity checks, pause/resume/finish, interrupted-session recovery to paused, and transactional removal. Limits are 20 sessions, 500 chunks per session and 200 points per chunk. This is a persistence foundation, not a GPS capture feature; no recording button or location collection is connected yet. Next: foreground location permission/capture and recording UI, lifecycle handling, then durable sync cursors/queues and owner-authorized uploads. Background recording and physical-device acceptance remain pending.
+
 Progress (2026-11-04, trail copies): explicit device-local SQLite snapshots and an Offline trails viewer independent of API/sign-in loading are implemented. Snapshots contain only route details, retain changed geometry/versions, allow removal, and are limited to 20 copies. Native runtime and airplane-mode cold-start acceptance remain pending. SQLite recording sessions, points, sync cursors and queued operations remain next steps.
 
 Progress (2026-11-04, download limits): new native map downloads are limited to 10 TrekTribe areas per device, with serialized inventory checks and creation. Existing packs can still resume; removing an area permits a replacement. Profile reports provider resource sizes, preserving unknown sizes instead of treating them as zero. This is an area-count limit, not a hard byte quota; disk-space enforcement and independent offline trail/session storage remain pending.

@@ -1,5 +1,11 @@
 # Validate the new features
 
+## Recording storage foundation (2026-11-07)
+
+There is no new recording button yet: this increment implements the persistence layer that GPS capture will use. Run `node --import tsx --test tests/track-storage.test.ts` with Node 22.13+. Tests open a real SQLite file, save numbered chunks, close/reopen it, verify interrupted sessions become paused, resume and finish, then remove all associated data. They also cover concurrent duplicate retries, conflicting payloads, ordering, integrity failures, an injected write failure with rollback, and capacity recovery after deletion.
+
+The native adapter `openTrackStorage()` opens a separate device-local database and injects Expo Crypto SHA-256. It does not request location permission, upload tracks or expose them through Offline trails. Storage is local-only, not encrypted or scoped to a signed-in account. A future recording UI must make device-local access clear before capture and must not publish tracks automatically. No real GPS, native SQLite runtime, background capture, screen-lock, permission-change, battery or full-disk acceptance is claimed by these tests.
+
 ## Offline trail copies (2026-11-04)
 
 Rebuild/install the native development app after pulling this change: it adds Expo SQLite. Open a trail, choose **Save offline copy**, then use **Offline trails** at the top of the app. This viewer is accessible before sign-in and independently of API loading. Copies are shared by everyone using this device; no account, membership or authentication data is stored with them.
