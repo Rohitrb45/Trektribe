@@ -1,14 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Text, View } from 'react-native';
-import { randomUUID } from 'expo-crypto';
+import { randomUUID, digestStringAsync, CryptoDigestAlgorithm } from 'expo-crypto';
 import type { TrackSession, TrackStorage } from './track-storage';
-import type { UploadJob } from './track-outbox';
+import type { UploadJob, UploadStatus } from './track-outbox';
+import { restorePrivateTrack } from './track-restore';
 import { openTrackOutbox } from './native-track-outbox';
 import { connectTrackUpload } from './track-upload-connection';
 import { Button, s } from './ui';
 
-export default function TrackUploads({ rows, source, active }: { rows: TrackSession[]; source: TrackStorage | null; active: boolean }) {
+export default function TrackUploads({ rows, source, active, onRestored }: { rows: TrackSession[]; source: TrackStorage | null; active: boolean; onRestored: () => Promise<void> }) {
   const [jobs, setJobs] = useState<UploadJob[]>([]);
+  const [remote, setRemote] = useState<(UploadStatus & { scope: string })[]>([]);
   const [account, setAccount] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -19,17 +21,21 @@ export default function TrackUploads({ rows, source, active }: { rows: TrackSess
     const listener = AppState.addEventListener('change', state => { if (state !== 'active') generation.current++; });
     return () => { generation.current++; enabled.current = false; listener.remove(); };
   }, []);
-  useEffect(() => { if (!active) { generation.current++; setJobs([]); setAccount(''); } }, [active]);
+  useEffect(() => { if (!active) { generation.current++; setJobs([]); setRemote([]); setAccount(''); } }, [active]);
   async function action(work?: (connection: Awaited<ReturnType<typeof connectTrackUpload>>, outbox: Awaited<ReturnType<typeof openTrackOutbox>>) => Promise<void>) {
     if (lock.current) return;
-    lock.current = true; setBusy(true); setError(''); setJobs([]); setAccount('');
+    lock.current = true; setBusy(true); setError(''); setJobs([]); setRemote([]); setAccount('');
     const ticket = generation.current;
     try {
       const connection = await connectTrackUpload(() => ticket === generation.current && enabled.current && AppState.currentState === 'active');
       const outbox = await openTrackOutbox();
       setAccount(connection.accountName);
       try { await work?.(connection,outbox); }
-      finally { connection.assertActive(); setJobs(await outbox.list(connection.scope)); }
+      finally {
+        connection.assertActive(); setJobs(await outbox.list(connection.scope));
+        const result = await connection.list(); connection.assertActive();
+        setRemote(result.items.map(item => ({...item,scope:connection.scope})));
+      }
     } catch (e) { setError(e instanceof Error ? e.message : 'Upload interrupted. Retry when connected.'); }
     finally { lock.current = false; setBusy(false); }
   }
@@ -65,6 +71,19 @@ export default function TrackUploads({ rows, source, active }: { rows: TrackSess
           await outbox.requestRemoval(connection.scope,job.id); await outbox.run(connection,job.id);
         }); } },
       ])} />
+    </View>)}
+    {!!remote.length && <Text style={s.sectionTitle}>Recordings on this account</Text>}
+    <Text style={s.bodySmall}>Restore downloads a finished recording to this device. Local copies are accessible without sign-in. Restoring again reuses the same local copy; it does not change the server recording.</Text>
+    {remote.map(item => <View key={item.id} style={s.panel}>
+      <Text>{item.title} · {item.pointCount} points · {item.completed ? 'Complete' : 'Upload incomplete'}</Text>
+      {item.completed && <Button title="Restore to this device" disabled={busy || !active} onPress={() => Alert.alert('Restore recording?', 'Download these GPS points to this device? The local copy will remain accessible after sign-out.', [
+        {text:'Cancel',style:'cancel'}, {text:'Restore',onPress:()=>{void action(async connection=>{
+          if(connection.scope!==item.scope) throw new Error('Account changed. Reload and confirm the restore again.');
+          if(!source) throw new Error('Recording storage is unavailable.');
+          await restorePrivateTrack(connection,item.id,source,text=>digestStringAsync(CryptoDigestAlgorithm.SHA256,text));
+          await onRestored();
+        });}},
+      ])} />}
     </View>)}
   </View>;
 }

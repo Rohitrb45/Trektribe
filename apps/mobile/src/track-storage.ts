@@ -146,6 +146,42 @@ export class TrackStorage {
     await this.queue;
     return this.db.getAllAsync<TrackSession>(`SELECT ${columns} FROM track_sessions_v1 ORDER BY created_at DESC, id`);
   }
+  /** Import a verified finished recording atomically; never expose a partially restored walk. */
+  restoreFinished(id: string, title: string, chunks: TrackPoint[][], active: () => void = () => {}) {
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id) || !title.trim() || title.length > 200 || !chunks.length || chunks.length > TRACK_LIMITS.chunks) return Promise.reject(new Error('Invalid restored recording.'));
+    let payloads: string[];
+    try { payloads = chunks.map(canonicalTrackPoints); } catch (e) { return Promise.reject(e); }
+    return this.write(async tx => {
+      active(); this.checkSpace();
+      let total = 0, last = -1, first = 0;
+      const saved: { payload: string; checksum: string }[] = [];
+      for (const payload of payloads) {
+        active();
+        const points = JSON.parse(payload) as TrackPoint[];
+        if (points[0].timestamp <= last) throw new Error('Restored timestamps must increase across chunks.');
+        if (!total) first = points[0].timestamp;
+        last = points[points.length - 1].timestamp; total += points.length;
+        saved.push({ payload, checksum: await this.hash(payload) });
+      }
+      const rows = await tx.getAllAsync<TrackSession>(`SELECT ${columns} FROM track_sessions_v1`);
+      const existing = rows.find(r => r.id === id);
+      if (existing) {
+        if (existing.state !== 'finished' || existing.title !== title.trim() || existing.pointCount !== total || existing.nextChunk !== saved.length) throw new Error('A different local recording uses this restore ID.');
+        const prior = await tx.getAllAsync<ChunkRow>('SELECT sequence,checksum,payload FROM track_chunks_v1 WHERE session_id=? ORDER BY sequence',id);
+        if (prior.length !== saved.length || prior.some((p,n) => p.sequence !== n || p.payload !== saved[n].payload || p.checksum !== saved[n].checksum)) throw new Error('The saved local copy differs from this server recording.');
+        return existing;
+      }
+      if (rows.length >= TRACK_LIMITS.sessions) throw new Error('Remove a local recording before restoring another (20 maximum).');
+      active(); this.checkSpace();
+      await tx.runAsync("INSERT INTO track_sessions_v1(id,title,state,created_at,next_chunk,point_count,last_timestamp) VALUES(?,?,'finished',?,?,?,?)",id,title.trim(),String(first),String(saved.length),String(total),String(last));
+      for (let n = 0; n < saved.length; n++) {
+        active(); this.checkSpace();
+        await tx.runAsync('INSERT INTO track_chunks_v1(session_id,sequence,checksum,payload) VALUES(?,?,?,?)',id,String(n),saved[n].checksum,saved[n].payload);
+      }
+      active();
+      return session(tx,id);
+    });
+  }
   async readChunk(id: string, sequence: number): Promise<TrackPoint[]> {
     await this.queue;
     const [row] = await this.db.getAllAsync<ChunkRow>('SELECT sequence,checksum,payload FROM track_chunks_v1 WHERE session_id = ? AND sequence = ?', id, String(sequence));

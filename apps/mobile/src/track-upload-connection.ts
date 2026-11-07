@@ -1,9 +1,11 @@
 import { accessToken, authenticatedMode } from './session';
 import { apiData, createApiClient } from './api/client';
-import { createPrivateTrack, uploadPrivateTrackChunk, completePrivateTrack, removePrivateTrack } from './api/recordings';
+import { createPrivateTrack, uploadPrivateTrackChunk, completePrivateTrack, removePrivateTrack, listPrivateTracks, getPrivateTrack, readPrivateTrackChunk } from './api/recordings';
+import type { RestoreConnection } from './track-restore';
+import type { UploadStatus } from './track-outbox';
 import { uploadCredentialGuard, type UploadConnection } from './track-outbox';
 
-export async function connectTrackUpload(active: () => boolean): Promise<UploadConnection & { accountName: string }> {
+export async function connectTrackUpload(active: () => boolean): Promise<UploadConnection & RestoreConnection & { accountName: string; list(): Promise<{ items: UploadStatus[] }> }> {
   if (!authenticatedMode) throw new Error('Sign in with an OIDC account to upload a private recording. Demo mode does not upload recordings.');
   const api = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, '');
   const issuer = process.env.EXPO_PUBLIC_OIDC_ISSUER;
@@ -33,6 +35,7 @@ export async function connectTrackUpload(active: () => boolean): Promise<UploadC
   // Server identity is derived from verified issuer/subject; no unverified JWT decoding is used.
   const scope = JSON.stringify([api, issuer, profile.id]);
   return { scope, accountName: profile.name, assertActive,
+    list: () => listPrivateTracks(client), get: id => getPrivateTrack(client,id), read: (id,n) => readPrivateTrackChunk(client,id,n),
     create: job => createPrivateTrack(client,{ id:job.id,title:job.title,chunkCount:job.chunkCount,pointCount:job.pointCount }),
     chunk: (id,n,body) => uploadPrivateTrackChunk(client,id,n,body),
     complete: id => completePrivateTrack(client,id), remove: id => removePrivateTrack(client,id),

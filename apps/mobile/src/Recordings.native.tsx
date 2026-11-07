@@ -106,7 +106,7 @@ export default function Recordings() {
           </View>;
         })}
         {preview && <><Text style={s.sectionTitle}>{preview.title}</Text><View style={{ height: 300 }}><RouteMap key={preview.title + preview.points.length} points={preview.points} /></View><Text style={s.bodySmall}>Lines connect saved positions, including across pauses; they are not a continuous recorded path. Terrain requires network access or a downloaded map area.</Text></>}
-        <TrackUploads rows={rows} source={repository.current} active={visible && !busy && !state.capturing && !state.busy} />
+        <TrackUploads rows={rows} source={repository.current} active={visible && !busy && !state.capturing && !state.busy} onRestored={async () => { setRows(await repository.current!.list()); }} />
       </ScrollView></SafeAreaView>
     </Modal>
   </>;

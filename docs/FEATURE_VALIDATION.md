@@ -1,5 +1,11 @@
 # Validate the new features
 
+## Restore a private recording (2026-11-07)
+
+With OIDC and the API configured, open **Record a walk → Private uploads → Load this account's uploads**. Completed server recordings, including ones uploaded from another device, offer **Restore to this device**. Confirm that the GPS copy will be accessible locally after sign-out. The restored finished recording should appear in the local list and support route inspection.
+
+Repeat restoration: the same restored copy is reused. A same-ID upload in another account/API must restore separately. Interrupt a download, change accounts, close/background the screen or inject an invalid checksum: no partial local recording may appear. Retry explicitly after reconnect. Pause/finish capture before restoring; starting another operation may cancel restore. At the 20-local-recording limit, delete a local recording and retry. Deleting a restored local copy leaves its server recording unchanged; restoring again creates that local copy again. This implementation retries a failed download from the beginning and holds at most 500 bounded chunks in memory before atomic import; resumable download staging and large-device endurance/performance acceptance remain pending.
+
 ## Private upload controls (2026-11-07)
 
 Requires configured OIDC, PostgreSQL migration 012 and a finished, nonempty native recording. Demo mode does not upload. In **Record a walk → Private uploads**, choose a recording, confirm the named account, and verify the upload entry reaches Uploaded privately. The source recording must remain local. Load account uploads again after reopening.
