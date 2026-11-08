@@ -1,4 +1,7 @@
-param([Parameter(Mandatory=$true)][ValidatePattern('^emulator-[0-9]+$')][string]$Serial)
+param(
+  [Parameter(Mandatory=$true)][ValidatePattern('^emulator-[0-9]+$')][string]$Serial,
+  [string]$SavedTrailTitle = ''
+)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $sdk = $env:ANDROID_HOME
@@ -18,6 +21,9 @@ function Invoke-Adb {
   return ($result -join "`n").Trim()
 }
 function Read-Ui {
+  # UIAutomator can report an error with exit 0, leaving an old XML file behind.
+  # Remove only our temporary dump so a failed capture cannot pass on stale UI.
+  [void](Invoke-Adb @('shell','rm','-f','/sdcard/trektribe-smoke.xml'))
   [void](Invoke-Adb @('shell','uiautomator','dump','/sdcard/trektribe-smoke.xml'))
   [void](Invoke-Adb @('pull','/sdcard/trektribe-smoke.xml',"$evidence/current.xml"))
   return [xml][IO.File]::ReadAllText("$evidence/current.xml")
@@ -74,6 +80,13 @@ try {
     Tap-Label $ui 'Offline trails'
     $ui = Wait-Label 'Close offline trails'
     Save-Evidence "trails-$round" $ui
+    if ($SavedTrailTitle) {
+      $ui = Wait-Label 'View saved trail'
+      Tap-Label $ui 'View saved trail'
+      $ui = Wait-Label 'Back to saved copies'
+      if (-not (Find-Label $ui $SavedTrailTitle)) { throw "The first saved trail does not match '$SavedTrailTitle'." }
+      Save-Evidence "saved-trail-$round" $ui
+    }
     Tap-Label $ui 'Close offline trails'
     $ui = Wait-Label 'Record a walk'
     Tap-Label $ui 'Record a walk'
@@ -102,5 +115,8 @@ try {
   } while ((Get-Date) -lt $restoreDeadline)
   if (-not $restored) { throw 'Radio restoration did not match the original settings; inspect the emulator.' }
 }
-'PASS: two radio-disabled cold starts and local screen navigation; original radio settings restored. Saved content, GPS, map coverage and sync are not asserted.' | Set-Content "$evidence/result.txt"
+'PASS: two radio-disabled cold starts and local screen navigation; original radio settings restored. Saved content is checked only when SavedTrailTitle is supplied; GPS, map coverage and sync are not asserted.' | Set-Content "$evidence/result.txt"
+if ($SavedTrailTitle) {
+  "PASS: first saved trail '$SavedTrailTitle' opened after both offline cold starts. Title and viewer navigation checked; geometry accuracy, terrain coverage and GPS are not asserted." | Add-Content "$evidence/result.txt"
+}
 Write-Host "Offline navigation smoke passed. Evidence: $evidence"

@@ -59,3 +59,15 @@ Use the emulator serial shown by `adb devices`. This command accepts emulator se
 Screenshots, UI XML, connectivity state and the successful result are written under `.tmp/offline-smoke-<timestamp>` (ignored by Git). These files can contain locally displayed trail/recording details; review them before sharing. A pass proves navigation, not saved-content integrity, GPS capture, downloaded-map coverage or account sync. Continue with the manual content checks above. Unknown radio/connectivity formats fail closed; inspect the evidence and restore settings manually if the emulator disconnects during cleanup.
 
 On the 8 GB Windows test PC, Small_Phone/API 37 booted using `-memory 1024 -cores 2 -no-snapshot -no-window -gpu host`. The normal larger emulator configuration had previously stalled under memory pressure. A visible emulator window is optional; this script uses ADB UI capture.
+
+### Include a saved trail in the smoke check
+
+Before starting, open a demo trail and choose **Save offline copy**. In **Offline trails**, confirm that the first saved copy is the one you intend to test. Then run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/android-offline-smoke.ps1 -Serial emulator-5554 -SavedTrailTitle 'Chandrashila Summit'
+```
+
+This option opens the first **View saved trail** entry after each network-disabled cold start and requires its viewer to show the supplied title. It fails if the saved list is empty, the viewer cannot open, or the title differs. Prepare the first entry explicitly; the script does not search, reorder, overwrite or delete saved copies. It captures `saved-trail-1` and `saved-trail-2` screenshots/XML alongside the existing evidence. Visually inspect the route outline and scroll the viewer to check remaining details; the automated assertion does not prove geometry accuracy or downloaded terrain coverage.
+
+Each UI capture first removes the script's own temporary device XML file. This prevents UIAutomator failures that leave a stale dump from producing a false pass. Original radio settings are restored on both success and assertion failure.
