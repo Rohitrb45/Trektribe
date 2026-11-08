@@ -1,6 +1,6 @@
 # Remaining work
 
-Current status: 2026-11-07. This is the current checklist; dated progress paragraphs in NEXT_STEPS.md are historical. The app is a development build, not a completed production release.
+Current status: 2026-11-08. This is the current checklist; dated progress paragraphs in NEXT_STEPS.md are historical. The app is a development build, not a completed production release.
 
 ## Completed in code
 
@@ -22,7 +22,7 @@ Current status: 2026-11-07. This is the current checklist; dated progress paragr
 | 2 | Private track sync | Owner-scoped server sessions/chunks, checksum/idempotency contracts, durable client outbox/cursors, retries/conflicts and deletion | Server endpoints, migration 012, generated adapter, account/API-scoped SQLite outbox and explicit native upload/retry/removal controls implemented. Application and PostgreSQL CI passed for the mobile outbox and deletion-race update; confirmed remote restore UI is implemented; live-account/native end-to-end acceptance remains pending. Uploads require confirmation |
 | 2 | Media pipeline | Owner-scoped S3/R2 upload authorization, bounded validation, worker processing/metadata removal, readiness and interrupted-upload recovery | Not implemented; live verification also needs object storage configuration |
 | 2 | Moderation appeals and erasure | Appeal submission/review and audit policy; permanent deletion covering database, attachments, outbox and local caches | Not implemented; retention/review policy needs definition before irreversible erasure |
-| 2 | Provider storage budget | Monitor in-progress downloads, hard cache/region budget and storage-pressure recovery | Preflight reserves and area-count limits exist; hard byte enforcement does not |
+| 2 | Provider storage budget | Monitor in-progress downloads, hard cache/region budget and storage-pressure recovery | Preflight reserves, area-count limits and foreground five-second low-space pause monitoring implemented. Native storage-pressure acceptance, background enforcement and hard byte enforcement remain pending |
 | 3 | iOS native acceptance | Build/sign, maps, SQLite, GPS and auth redirects on supported iOS hardware | Requires macOS/Xcode and an iOS target |
 | 3 | Multi-instance deployment acceptance | Load-balancer reconnects, membership revocation, Redis outages, duplicate outbox delivery and restart recovery | Code/tests exist for coordination; deployed load-balancer validation remains open |
 | 3 | Release hardening | Dependency/security review, staging configuration, backup/restore, observability, CI/release checks and removal of production guard only after acceptance | Production startup remains disabled |

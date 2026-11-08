@@ -245,3 +245,9 @@ Native map validation (2026-11-01): Android x86_64 live tiles, sample-route fram
 ## Bundled Android offline validation
 
 See [OFFLINE_ANDROID_BUILD.md](OFFLINE_ANDROID_BUILD.md) for a build with embedded JavaScript, APK verification, installation and airplane-mode cold-start checks. Physical-device testing remains deferred; packaging checks do not establish native runtime acceptance.
+
+## Foreground map-download storage monitoring
+
+The native app now checks available disk space on a five-second timer while active and requests a check on foreground entry (sweeps never overlap). If free space is below 256 MiB or cannot be read, it attempts to pause active TrekTribe map packs. Completed/inactive packs and unrelated regions are left alone; unreadable pack status triggers a best-effort pause. Failures remain visible and do not prevent attempts to pause other packs. Nothing is deleted or resumed automatically. Free space, then use the existing Resume control.
+
+This is foreground polling, not a hard cache quota: downloads can consume space between checks, native pauses may fail, and background transfers are not monitored. Rebuild/reinstall the mobile APK to include this change; the previously verified APK predates it. Validate on a disposable emulator with a test area: begin a download, reduce free space below the reserve using controlled test data, confirm the warning/pause, restore space and manually resume. Also check background/foreground transitions and pack removal during a sweep. Do not fill a personal device to test this. Real SDK/storage-pressure acceptance remains pending.

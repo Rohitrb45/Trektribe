@@ -2,6 +2,7 @@ import RouteMap from "./RouteMap";
 import OfflineMap from "./OfflineMap";
 import OfflineTrails, { SaveOfflineTrail } from "./OfflineTrails";
 import Recordings from "./Recordings";
+import MapStorageMonitor from "./MapStorageMonitor";
 import { Avatar, Button, Chip, Label, green, muted, s } from "./ui";
 import { ExploreScreen } from "./screens/ExploreScreen";
 import { CommunityScreen } from "./screens/CommunityScreen";
@@ -74,6 +75,7 @@ export default function App() {
       <Slot />
       <OfflineTrails />
       <Recordings />
+      <MapStorageMonitor />
       {authenticatedMode ? (
         <AuthGate>
           {(logout) => (
